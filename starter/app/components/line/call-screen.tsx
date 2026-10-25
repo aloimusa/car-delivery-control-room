@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { Icon } from "../icons"
 import { personColor } from "@/lib/present/color"
 import { ClaimsList, Scorecard } from "../calls/review-parts"
+import { PlayCallButton, PlayTurnButton, useCallPlayer } from "../calls/call-audio"
 import type { CallRecord, CallReview } from "@/lib/present/call-types"
 import "./call-screen.css"
 
@@ -20,7 +21,7 @@ const FRAME_BYTES = 960
 const SILENCE = new ArrayBuffer(FRAME_BYTES)
 const QUIET_MS = 5000
 
-type Phase = "idle" | "checking" | "composing" | "connecting" | "live" | "ending" | "ended" | "failed"
+type Phase = "idle" | "checking" | "composing" | "connecting" | "live" | "ending" | "ended" | "failed" | "simulating"
 /** Whose turn it is, so a pause before a reply reads as thinking rather than a dropped line. */
 type Turn = "listening" | "thinking" | "speaking"
 type Caption = { role: "model" | "user"; text: string; final: boolean; t: number }
@@ -55,7 +56,6 @@ export function CallScreen({ target, onClose, autoStart = false, onResult }: {
   const [status, setStatus] = useState("")
   const [captions, setCaptions] = useState<Caption[]>([])
   const [muted, setMuted] = useState(false)
-  const [halfDuplex, setHalfDuplex] = useState(false)
   const [startedAt, setStartedAt] = useState<number | null>(null)
   const [, setTick] = useState(0)
   const [transcript, setTranscript] = useState<Line[] | null>(null)
@@ -68,9 +68,10 @@ export function CallScreen({ target, onClose, autoStart = false, onResult }: {
     id: string; ws: WebSocket | null; wsPath: string; ctx: AudioContext; stream: MediaStream | null; node: AudioWorkletNode | null
     nextT: number; sources: AudioBufferSourceNode[]; lastMsg: number; reconnected: boolean; heartbeat: number; ended: boolean
   } | null>(null)
-  const flags = useRef({ muted: false, halfDuplex: false, live: false })
+  const flags = useRef({ muted: false, live: false })
   flags.current.muted = muted
-  flags.current.halfDuplex = halfDuplex
+  const [simulated, setSimulated] = useState<CallRecord | null>(null)
+  const [simElapsed, setSimElapsed] = useState(0)
   const captionsEnd = useRef<HTMLDivElement>(null)
 
   useEffect(() => { captionsEnd.current?.scrollIntoView({ block: "end" }) }, [captions])
@@ -275,7 +276,7 @@ export function CallScreen({ target, onClose, autoStart = false, onResult }: {
         const current = call.current
         if (!current?.ws || current.ws.readyState !== 1 || !flags.current.live) return
         const modelSpeaking = current.nextT > current.ctx.currentTime
-        current.ws.send(flags.current.muted || (flags.current.halfDuplex && modelSpeaking) ? SILENCE : event.data as ArrayBuffer)
+        current.ws.send(flags.current.muted ? SILENCE : event.data as ArrayBuffer)
       }
       call.current.heartbeat = window.setInterval(() => {
         const current = call.current
@@ -319,11 +320,45 @@ export function CallScreen({ target, onClose, autoStart = false, onResult }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  /** Both sides played by the model on the call service: Mira from the dossier, the other party from a persona. */
+  const simulate = useCallback(async () => {
+    setPhase("simulating"); setStatus("Both sides are being played by the model…"); setSimulated(null); setResult(null); setTranscript(null); setLinked(null); setExtractError(null)
+    const began = Date.now()
+    const ticker = window.setInterval(() => setSimElapsed(Math.round((Date.now() - began) / 1000)), 1000)
+    try {
+      const response = await fetch("/api/calls/sim", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ref: target.orderRef, purpose: target.purpose }) })
+      const started = await response.json() as { jobId?: string; error?: string }
+      if (!response.ok || !started.jobId) throw new Error(started.error ?? "The call service did not start the call.")
+      const deadline = Date.now() + 5 * 60_000
+      for (;;) {
+        await new Promise((resolve) => setTimeout(resolve, 2500))
+        const poll = await fetch(`/api/calls/jobs/${encodeURIComponent(started.jobId)}`, { cache: "no-store" })
+        if (poll.status === 404) throw new Error("The call service restarted during the call and lost it. Simulate it again.")
+        const job = await poll.json() as { status: string; call?: CallRecord; review?: CallReview | null; error?: string }
+        if (job.status === "done" && job.call) {
+          const call = job.call
+          const t0 = Date.parse(call.startedAt)
+          setSimulated(call)
+          setResult({ call, review: job.review ?? null })
+          setTranscript(call.turns.map((line) => ({ t: (Date.parse(line.startedAt) - t0) / 1000, role: line.speaker === "CALLER" ? "model" : "user", text: line.text })))
+          setStatus("Both sides were played by the model; the call is on the order like any other.")
+          setPhase("ended")
+          break
+        }
+        if (job.status === "failed") throw new Error(job.error ?? "The model could not finish the call.")
+        if (Date.now() > deadline) throw new Error("The call took too long; it may still finish on the call service.")
+      }
+    } catch (error) {
+      setPhase("failed"); setStatus(error instanceof Error ? error.message : "The simulation failed.")
+    } finally { window.clearInterval(ticker) }
+  }, [target.orderRef, target.purpose])
+
   const autoStarted = useRef(false)
   useEffect(() => { if (autoStart && !autoStarted.current) { autoStarted.current = true; void start() } }, [autoStart, start])
 
   const inCall = phase === "checking" || phase === "composing" || phase === "connecting" || phase === "live"
   return <div className={`call-screen cs-${phase}`} aria-live="polite">
+    <div className="cs-sim"><i aria-hidden="true" />Simulated call · nothing is dialled</div>
     <header className="cs-head">
       <span className="cs-avatar" aria-hidden="true" style={{ background: personColor(target.calleeName), color: "#fff" }}>{target.calleeName.split(/\s+/).filter((part) => /^[A-Z]/.test(part)).map((part) => part[0]).join("").slice(0, 2)}</span>
       <b>{target.calleeName}</b>
@@ -334,7 +369,14 @@ export function CallScreen({ target, onClose, autoStart = false, onResult }: {
     </header>
 
     {phase !== "ended" && <div className="cs-captions" aria-label="Live captions">
-      {captions.length === 0 && <p className="cs-hint">{phase === "idle" ? target.youAre : phase === "live" ? "Say hello. Captions appear as you both speak." : status}</p>}
+      {captions.length === 0 && (phase === "idle" || phase === "failed"
+        ? <div className="cs-roles">
+          <span><b>{target.calleeName}</b> is played by the model from the order dossier.</span>
+          <span><b>{target.youAre.replace(/^You are /, "You play ")}</b></span>
+          <small>Start the call to answer with your microphone, or let the model play your side too.</small>
+          {phase === "failed" && status && <small>{status}</small>}
+        </div>
+        : <p className="cs-hint">{phase === "simulating" ? `${status} ${simElapsed} s` : phase === "live" ? "Say hello. Captions appear as you both speak." : status}</p>)}
       {captions.map((item, index) => <p key={index} className={`cs-cap cs-${item.role}${item.final ? "" : " interim"}`}>{item.text}</p>)}
       <div ref={captionsEnd} />
     </div>}
@@ -342,25 +384,27 @@ export function CallScreen({ target, onClose, autoStart = false, onResult }: {
     {phase === "ended" && <div className="cs-transcript">
       <p className="cs-done">{status}{linked ? <> · added to <span className="mono">{linked}</span> on the map</> : null}</p>
       {extracting && <p className="cs-hint">Reading the transcript for claims…</p>}
+      {simulated && <SimulatedPlayback call={simulated} />}
       {result?.review && <Scorecard review={result.review} compact />}
       {result && <div className="cs-claims"><ClaimsList call={result.call} /></div>}
       {!extracting && !result && extractError && <p className="cs-fine">Claims could not be extracted: {extractError}</p>}
       {transcript && transcript.length > 0 ? <ol>{transcript.map((line, index) => <li key={index} className={`cs-${line.role === "model" ? "model" : "user"}`}>
         <small>{clock(line.t)}</small><span>{line.text}</span>
       </li>)}</ol> : <p className="cs-hint">The phone recorded no words for this call.</p>}
-      <p className="cs-fine">Transcript of the {CALLER_WORDS}&apos;s recording. A spoken answer is a claim, not a scan or a signed record.</p>
+      <p className="cs-fine">{simulated ? "Transcript of a call the model played on both sides." : `Transcript of the ${CALLER_WORDS}'s recording.`} A spoken answer is a claim, not a scan or a signed record.</p>
     </div>}
 
     <footer className="cs-controls">
       {inCall && <>
         <button type="button" className={`cs-btn${muted ? " on" : ""}`} onClick={() => setMuted((value) => !value)} aria-pressed={muted}>{muted ? "Unmute" : "Mute"}</button>
-        <button type="button" className={`cs-btn${halfDuplex ? " on" : ""}`} onClick={() => setHalfDuplex((value) => !value)} aria-pressed={halfDuplex} title="Mute the microphone while the other side is speaking, if you hear an echo">Half-duplex</button>
         <button type="button" className="cs-btn cs-hang" onClick={() => void hangUp()}><Icon name="message" size={13} />Hang up</button>
       </>}
       {(phase === "idle" || phase === "failed") && <>
-        <button type="button" className="cs-btn cs-call" onClick={() => void start()}>{phase === "failed" ? "Try again" : "Start the call"}</button>
+        <button type="button" className="cs-btn cs-call" onClick={() => void start()} title="Mira calls; you answer with your microphone">{phase === "failed" ? "Try again" : "Start the call"}</button>
+        <button type="button" className="cs-btn" onClick={() => void simulate()} title="The model plays both sides; you listen and read">Simulate both sides</button>
         <button type="button" className="cs-btn" onClick={onClose}>Close</button>
       </>}
+      {phase === "simulating" && <span className="cs-hint">The model is on the call… <button type="button" className="cs-btn" onClick={onClose}>Close</button></span>}
       {phase === "ending" && <span className="cs-hint">Saving the call…</span>}
       {phase === "ended" && <button type="button" className="cs-btn cs-call" onClick={onClose}>Done</button>}
     </footer>
@@ -372,4 +416,11 @@ export function CallOverlay({ target, onClose }: { target: CallTarget; onClose: 
   return <div className="cs-overlay" role="dialog" aria-label={`Call: ${target.purposeLabel}`}>
     <div className="cs-phone"><CallScreen target={target} onClose={onClose} /></div>
   </div>
+}
+
+/** Play the model-played call: all of it, or one turn. Audio exists when the call service rendered it. */
+function SimulatedPlayback({ call }: { call: CallRecord }) {
+  const player = useCallPlayer(call)
+  if (!player.spoken) return null
+  return <div className="cs-play"><PlayCallButton player={player} />{player.playing != null && <PlayTurnButton player={player} seq={player.playing} has />}</div>
 }

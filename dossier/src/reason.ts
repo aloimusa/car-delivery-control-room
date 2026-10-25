@@ -195,12 +195,14 @@ export async function composeBrief(d: Dossier, purpose: CallPurpose, opts: { mod
   const draft = briefFor(d, purpose)
   const apiKey = opts.apiKey ?? process.env.OPENROUTER_API_KEY
   if (!apiKey) return { brief: draft, by: "RULE", costUsd: null, error: "no api key" }
-  const model = opts.model ?? process.env.REASON_MODEL ?? "deepseek/deepseek-v4-pro"
+  // The brief is a rewrite of a rule-built draft into speakable lines: the quick model by default (BRIEF_MODEL, the one
+  // that drafts suggested replies in seconds) and no hidden reasoning. The dossier reasoning keeps the pro model.
+  const model = opts.model ?? process.env.BRIEF_MODEL ?? "deepseek/deepseek-v4-flash"
   const user = `Purpose: ${purpose}\nCallee: ${JSON.stringify(draft.callee)}\n\nDraft brief (facts allowed):\n${JSON.stringify({ opening: draft.opening, mayState: draft.mayState, ask: draft.ask, mustNot: draft.mustNot, closing: draft.closing }, null, 1)}\n\n${renderDossier(d, { maxHistory: 10 })}`
   const Part = z.object({ opening: Text.max(300), mayState: z.array(Text.max(300)).min(1).max(12), ask: z.array(z.string()).min(1).max(6), closing: Text.max(300), maxDurationS: z.number().int().min(30).max(180) }).strict()
   let feedback: string | undefined, cost = 0
   for (let attempt = 0; attempt < 2; attempt++) {
-    const r = await chat(apiKey, model, BRIEF_RULES, user, feedback); cost += r.usage?.cost ?? 0
+    const r = await chat(apiKey, model, BRIEF_RULES, user, feedback, { reasoning: { enabled: false } }); cost += r.usage?.cost ?? 0
     let json: unknown; try { json = JSON.parse(stripFence(r.raw)) } catch (e) { feedback = `not valid JSON`; continue }
     const part = Part.safeParse(json)
     if (!part.success) { feedback = part.error.issues.slice(0, 3).map((i) => `${i.path.join(".")}: ${i.message}`).join("; "); continue }
