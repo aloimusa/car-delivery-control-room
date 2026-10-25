@@ -105,6 +105,8 @@ function nearestIndex(coords: [number, number][], lat: number, lng: number): num
 
 type Glide = { from: [number, number]; to: [number, number]; start: number }
 
+import { buildCrowd, crowdCounts, isCrowd } from "./crowd"
+
 export function ChartHome({ initial }: { initial: ChartView }) {
   const holder = useRef<HTMLDivElement>(null)
   const map = useRef<LeafletMap | null>(null)
@@ -127,18 +129,23 @@ export function ChartHome({ initial }: { initial: ChartView }) {
   const [, setTick] = useState(0)
   const [offline, setOffline] = useState(false)
   const [replay, setReplay] = useState<Replay | null>(null)
+  // "400 orders?": three hundred made-up orders beside the real hundred, in this component only.
+  const [crowd, setCrowd] = useState(false)
+  const crowdNodes = useMemo(() => (crowd ? buildCrowd(view.nodes.filter((node) => !isCrowd(node.orderId)), view.simNow) : []), [crowd, view.nodes, view.simNow])
 
   // While replaying, vessels sit at their last stored fix at the chosen time; no fix then, no vessel.
   const nodes = useMemo(() => {
-    if (!replay) return view.nodes
-    return view.nodes.flatMap((node) => {
+    const all = crowd ? [...view.nodes, ...crowdNodes] : view.nodes
+    if (!replay) return all
+    return all.flatMap((node) => {
       if (node.kind !== "vessel") return [node]
       const fix = replay.fixes.get(node.orderId)
       return fix ? [{ ...node, lat: fix.lat, lng: fix.lng, heading: fix.heading, at: fix.at, trail: [], placeLabel: `Replay: stored fix at ${clockOf(fix.at)} UTC`, ageLabel: "replay" }] : []
     })
-  }, [view.nodes, replay])
+  }, [view.nodes, replay, crowd, crowdNodes])
   const byId = useMemo(() => new Map(nodes.map((node) => [node.orderId, node])), [nodes])
   const selected = selectedId ? byId.get(selectedId) ?? null : null
+  const extra = useMemo(() => (crowd ? crowdCounts(crowdNodes) : { moving: 0, booked: 0, atPickup: 0, deliveredToday: 0 }), [crowd, crowdNodes])
 
   // ---- map setup (Leaflet needs the window)
   useEffect(() => {
@@ -505,17 +512,21 @@ export function ChartHome({ initial }: { initial: ChartView }) {
 
       {!selected && <NeedsPeek view={view} onPick={focus} onHover={setHoverId} selectedId={selectedId} />}
 
-      {selected && <Dossier key={selected.orderId} node={selected} onClose={() => setSelectedId(null)} />}
+      {selected && (isCrowd(selected.orderId)
+        ? <CrowdCard key={selected.orderId} node={selected} onClose={() => setSelectedId(null)} />
+        : <Dossier key={selected.orderId} node={selected} onClose={() => setSelectedId(null)} />)}
+      {crowd && <div className="crowd-banner" role="status"><b>400 orders.</b> 300 of them are simulated for scale: not in the dataset, no pages, no cases, no calls. Click one to see what a node carries.</div>}
 
       <div className="chart-strip" aria-label="Fleet at a glance">
         <span className="strip-clock" title="The simulated clock: the dataset snapshot plus the time since the app started">
           {dayOf(simNow)} <b className="num">{clockOf(simNow, true)}</b> UTC, simulated
         </span>
         <span className="strip-counts">
-          <span><b className="num">{view.counts.moving}</b> moving</span>
-          <span><b className="num">{view.counts.booked}</b> booked</span>
-          <span title="Booked orders whose pickup slot has started and no pickup is recorded"><b className="num">{view.counts.atPickup}</b> pickup due</span>
-          <span><b className="num">{view.counts.deliveredToday}</b> delivered today</span>
+          <span><b className="num">{view.counts.moving + extra.moving}</b> moving</span>
+          <span><b className="num">{view.counts.booked + extra.booked}</b> booked</span>
+          <span title="Booked orders whose pickup slot has started and no pickup is recorded"><b className="num">{view.counts.atPickup + extra.atPickup}</b> pickup due</span>
+          <span><b className="num">{view.counts.deliveredToday + extra.deliveredToday}</b> delivered today</span>
+          {crowd && <span className="tone-warn" title="300 simulated orders are counted in">{nodes.length} on the map</span>}
           {offline && <span className="tone-warn">Reconnecting</span>}
         </span>
         <span className="strip-legend" aria-label="Legend">
@@ -531,6 +542,9 @@ export function ChartHome({ initial }: { initial: ChartView }) {
         <span className="strip-note">Car positions are simulated phone GPS</span>
       </div>
 
+      <button type="button" className={`crowd-toggle${crowd ? " on" : ""}`} aria-pressed={crowd} onClick={() => { setCrowd((value) => !value); if (crowd && isCrowd(selectedId)) setSelectedId(null) }} title="Show the map with 400 orders: 300 simulated ones beside the dataset's 100">
+        {crowd ? "Back to 100 orders" : "400 orders?"}
+      </button>
       <Scrubber simNow={simNow} replay={replay} onReplay={setReplay} />
     </div>
   </AppFrame>
@@ -618,4 +632,27 @@ function NeedCard({ item, active, onPick, onHover }: { item: ChartCard; active: 
       <span className="need-foot">{item.source} · {item.sinceLabel}</span>
     </button>
   </li>
+}
+
+/** What a simulated node carries: the basics every node has, and the word that it is not a real order. */
+function CrowdCard({ node, onClose }: { node: ChartNode; onClose: () => void }) {
+  return <aside className="dossier crowd-card" aria-label={`${node.reference}, simulated order`}>
+    <div className="crowd-note">Simulated order, not in the dataset. It has no page, no records and no history; it is here to show the map at full operation.</div>
+    <header className="ds-head">
+      <div className="ds-title"><b>{node.vehicle}</b><span className="mono">{node.reference}</span></div>
+      <button type="button" className="ds-close" onClick={onClose} aria-label="Close">×</button>
+    </header>
+    <section className="ds-sec">
+      <h3>{node.laneLabel}{node.motionNote ? ` · ${node.motionNote}` : ""}</h3>
+      <p className={`ds-headline tone-${node.tone}`}>{node.headline ?? (node.lane === "moving" ? `${node.driver} is driving it from ${node.from} to ${node.to}.` : node.lane === "booked" ? `Booked for collection at ${node.fromName}.` : node.lane === "delivered" ? `Delivered to ${node.toName}.` : "Ordered, not yet booked.")}</p>
+      <dl className="crowd-facts">
+        <dt>From</dt><dd>{node.fromName}, {node.from}</dd>
+        <dt>To</dt><dd>{node.toName}, {node.to}</dd>
+        {node.driver && <><dt>Driver</dt><dd>{node.driver}</dd></>}
+        <dt>Customer</dt><dd>{node.customer}</dd>
+        {node.promiseText && <><dt>Promise</dt><dd>{node.promiseText}</dd></>}
+        {node.placeLabel && <><dt>Position</dt><dd>{node.placeLabel} · simulated</dd></>}
+      </dl>
+    </section>
+  </aside>
 }

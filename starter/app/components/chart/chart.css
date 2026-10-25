@@ -433,3 +433,15 @@
 .sp-now .sp-dot { background: var(--tone-agent); }
 
 .lg-shape { width: 13px; height: 13px; margin-right: 5px; vertical-align: -2px; fill: var(--c-fine); }
+
+/* "400 orders?": the toggle sits left of Replay; the banner says what the crowd is; the card is the panel's shell with a note. */
+.crowd-toggle { position: absolute; z-index: 999; bottom: 16px; right: 118px; padding: 9px 14px; border: 0; border-radius: 999px; background: var(--birch); color: var(--muted); font: inherit; font-size: 12.5px; font-weight: 600; box-shadow: var(--shadow-card); cursor: pointer; }
+.crowd-toggle:hover { color: var(--ink); box-shadow: var(--shadow-card-hover); }
+.crowd-toggle.on { background: var(--ink); color: var(--birch); }
+.chart-home.has-dossier .crowd-toggle { right: 582px; }
+.crowd-banner { position: absolute; z-index: 1000; top: 16px; left: 50%; transform: translateX(-50%); max-width: min(720px, calc(100% - 400px)); padding: 8px 14px; border-radius: 10px; background: var(--ink); color: var(--birch); font-size: 12.5px; box-shadow: var(--shadow-card); }
+.crowd-banner b { font-weight: 600; margin-right: 4px; }
+.crowd-card .crowd-note { margin: 0 0 10px; padding: 9px 12px; border-radius: 10px; background: var(--amber-bg, rgba(217, 164, 58, 0.14)); color: var(--orange-ink); font-size: 12.5px; }
+.crowd-facts { display: grid; grid-template-columns: max-content 1fr; gap: 3px 14px; margin-top: 10px; font-size: 13px; }
+.crowd-facts dt { color: var(--subtle); }
+.crowd-facts dd { margin: 0; }

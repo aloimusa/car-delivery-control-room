@@ -19,6 +19,13 @@ Scenario A with the real agent: a Bentley's dongle reports a flashing engine lig
 | ![The map of every delivery](screenshots/map.png) | ![The driver's phone: safety line first, then the agent's questions](screenshots/driver.png) |
 | **The map.** Every delivery on its route; red needs a person, amber is worth a look. | **The driver's phone.** The stop instruction went out before the agent's first word, in the driver's home language with English below; the agent then writes in the driver's language. |
 
+## Setup in one line
+
+Both services need one secret: an OpenRouter key. Copy `starter/.env.example` to `starter/.env` and `dossier/.env.example`
+to `dossier/.env`, put the key in `OPENROUTER_API_KEY` in each, and leave the rest; every other line has a working
+default. The phone line (speech in and out) runs on the same key through OpenRouter, so no GPU is needed anywhere;
+see `tools/phone-line/README.md`.
+
 ## Run from a fresh clone
 
 You need Node.js 24 or newer, npm and Docker with Compose.
