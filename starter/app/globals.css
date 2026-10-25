@@ -255,6 +255,9 @@ ul, ol { padding: 0; list-style: none; }
 .card-line { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 18px; }
 .card-vehicle { flex: 1; min-width: 0; font-size: 14px; font-weight: 600; line-height: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .card-marks { display: flex; gap: 4px; flex: none; }
+/* A person is needed now: said in words, in red, on the card itself, with a red edge so the column reads at a glance. */
+.card-person { box-shadow: var(--shadow-card), inset 3px 0 0 var(--red); }
+.card-need { flex: none; display: inline-flex; align-items: center; height: 18px; padding: 0 7px; margin-left: auto; border-radius: 999px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.02em; color: var(--red-ink); background: var(--red-bg, rgba(253, 74, 97, 0.12)); white-space: nowrap; }
 .card-ref { font-family: var(--font-mono); font-size: 11.5px; color: var(--muted); flex: none; }
 .card-customer { flex: 1; min-width: 0; text-align: right; font-size: 12px; color: var(--subtle); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .card-route { font-size: 12.5px; color: var(--brown); }

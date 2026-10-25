@@ -3,6 +3,7 @@
 import Link from "next/link"
 import { laneLabel } from "@/lib/present/labels"
 import { fmtDateTime, fmtRange, fmtWeekday } from "@/lib/present/time"
+import { needsPersonNow } from "@/lib/present/tone-rule"
 import type { BoardCard, Tone } from "@/lib/present/types"
 import { Icon } from "./icons"
 
@@ -13,15 +14,18 @@ export const MARK_ICON: Record<string, string> = {
 }
 
 /** One order on a board or in a list: car, reference, customer, route, the decisive date and the work tray. */
-export function Card({ card, role }: { card: BoardCard; role?: string | null }) {
+export function Card({ card, role, now = null }: { card: BoardCard; role?: string | null; now?: string | null }) {
   const marks = uniqueMarks(card)
   const date = card.decisive
+  // The same rule as the lane's "n need a person" count: red means a decision is waiting for a person now.
+  const person = card.attention.some((item) => needsPersonNow(item, now))
   return <div>
     {role && <div className="card-role">{role}</div>}
-    <Link className="card" href={`/orders/${card.id}`} aria-label={`${card.vehicle}, ${card.reference}, ${laneLabel(card.displayLane)}`}>
+    <Link className={`card${person ? " card-person" : ""}`} href={`/orders/${card.id}`} aria-label={`${card.vehicle}, ${card.reference}, ${laneLabel(card.displayLane)}${person ? ", needs a person" : ""}`}>
       <div className="card-body">
         <div className="card-line">
           <span className="card-vehicle">{card.vehicle}</span>
+          {person && <span className="card-need">Needs a person</span>}
           {marks.length > 0 && <span className="card-marks" aria-hidden="true">{marks.map(([kind, tone]) => <Icon key={kind} name={MARK_ICON[kind] ?? "note"} size={14} className={`tone-${tone}`} />)}</span>}
         </div>
         <div className="card-line">

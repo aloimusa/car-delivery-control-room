@@ -68,7 +68,7 @@ export default function Board() {
           <div className="lane-scroll">
             {!overview && !error && <ul className="lane-list" aria-busy="true">{[0, 1, 2].map((index) => <li className="skeleton" key={index} />)}</ul>}
             {overview && cards.length === 0 && <p className="lane-empty">{filtering ? "No matching orders in this lane." : "No orders in this lane."}</p>}
-            {cards.length > 0 && <ul className="lane-list">{cards.map((card) => <li key={card.id}><Card card={card} /></li>)}</ul>}
+            {cards.length > 0 && <ul className="lane-list">{cards.map((card) => <li key={card.id}><Card card={card} now={overview?.simNow ?? overview?.snapshotAt ?? null} /></li>)}</ul>}
           </div>
         </div>
       })}
