@@ -104,3 +104,39 @@ Two decisions to make: whether the two Haiku side calls should move to DeepSeek 
 `VISION_MODEL`; the classifier is a one-word answer, the vision call needs a model that takes images, which DeepSeek on
 OpenRouter does not), and whether the case agent should read the dossier service's rendered dossier as its first tool
 result instead of assembling the same facts from eight tools.
+
+## Review: is what each model sees the right thing?
+
+Short answer: the dossier half is the right design; the case agent half is not, and the two should be one.
+
+**What is right.** One typed document per order, graded by evidence strength, with a rule-built derived layer that
+decides when the model is woken, and typed output appended back. The model never has to discover what exists: it
+reads everything and answers a closed schema. That is why the reasoning step is auditable (every line cites a record),
+why the soak could judge it mechanically, and why the line and the simulated calls say the same things as the
+headline on the map: they read the same text. Keep this.
+
+**What is not.** The case agent assembles its own picture of the order from up to eight read tools on every turn.
+That costs 3 to 12 model calls per turn, it re-derives facts the dossier already holds in typed form, and it can
+disagree with the dossier view the operator is looking at (the "codes have cleared" incident last night came from a
+tool reading a different frame than the event the agent was told about). Its only real need for tools is to **act**:
+message the driver, ask the site, propose, wait, hand over, close. Reading should come from the dossier.
+
+**Three specific gaps.**
+
+1. *Two sources of truth for the same order.* The case agent reads Postgres through its tools; the dossier service
+   reads the dataset plus a live pull of that Postgres. Each turn of the case agent should start with the rendered
+   dossier as its first (and usually only) read, fetched from the dossier service, with the eight read tools kept
+   only for things the dossier cannot carry (a nearby-help search, a travel quote, a photo).
+2. *The brief as a separate model step.* It exists because the voice model on the line was once a small model that
+   needed a short card. The line now runs the pro model with the whole dossier, so the brief only adds the
+   "may state / must not / closing" frame. The rules already build that frame deterministically; the flash rewrite
+   is cheap and improves wording, so keep it, but it should not be a reason to wait: the rule-built draft can open the
+   call and the rewrite can land on the next turn.
+3. *Three models where two would do.* DeepSeek v4 pro for anything that reasons over a dossier (the reasoning step,
+   Mira, extraction, the case agent), DeepSeek v4.1 flash for anything that rewrites or role-plays (briefs, suggested
+   replies, personas, the demo driver). Haiku stays for the two things DeepSeek cannot do on OpenRouter: see a photo,
+   and answer the one-word drivability screen cheaply on every outbound line. Done today in code and in the box's env.
+
+**What I would not change.** The derived layer waking the model only on change; typed outputs with citations; the
+approval gate in code rather than in a prompt; the safety templates. Those are the parts that made the night's faults
+findable and fixable.

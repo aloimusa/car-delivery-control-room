@@ -8,7 +8,7 @@ import path from "node:path"
 export const APP = process.env.NIGHT_APP ?? "http://127.0.0.1:8798"
 export const DOSSIER = process.env.NIGHT_DOSSIER ?? "http://127.0.0.1:8800"
 export const DB = process.env.NIGHT_DB ?? "controlroom_sim"
-export const PLAYER_MODEL = process.env.NIGHT_PLAYER_MODEL ?? "deepseek/deepseek-v4-flash"
+export const PLAYER_MODEL = process.env.NIGHT_PLAYER_MODEL ?? "deepseek/deepseek-v4.1-flash"
 export const OPERATOR_ID = "ops-shift"
 
 export const sleep = (ms: number) => new Promise((ok) => setTimeout(ok, ms))
