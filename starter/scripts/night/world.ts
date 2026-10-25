@@ -1,6 +1,6 @@
 // What a scenario can do to the sandbox: raise a fault, have a party write in, decide as the operator, move the clock,
 // read a case. Every call goes through the app's real endpoints except a customer writing in, which has none.
-import { APP, DOSSIER, OPERATOR_ID, getJson, postChannel, postJson, q, sql, sleep, waitFor, type Rec } from "./lib"
+import { APP, DB, DOSSIER, OPERATOR_ID, getJson, postChannel, postJson, q, sql, sleep, waitFor, type Rec } from "./lib"
 
 export type CaseRow = { id: string; order_id: string; order_ref: string; kind: string; status: string; urgency: string; title: string; next_action: string | null; waiting_on: string | null; waiting_for?: string | null; pending_proposals?: number }
 export type Proposal = { id: string; status: string; actionType: string; title: string; revision: number; options: { id: string; label: string; recommended?: boolean }[]; draftMessage: { to_type: string; to_id: string; to_name: string; channel: string; body: string; subject?: string | null; language?: string | null } | null; chosenOptionId: string | null; executionResult: Record<string, unknown> | null; nextStepIfApproved: string; nextStepIfRejected: string }
@@ -13,8 +13,26 @@ export class World {
 
   order(id: string) { return getJson<OrderView>(`${APP}/api/orders/${id}`) }
 
-  /** Start a scenario from a clean order: whatever earlier passes left open on it is closed, so the app opens a new case. */
+  /**
+   * Start a scenario from a clean order. On the sandbox database (NIGHT_DB names controlroom_sim) everything an earlier
+   * pass left on the order goes: cases, cards, effects (an executed rebooking made the agent tell a later pass's driver
+   * "that ferry has already been handled"), timeline events, telemetry (injected faults stay lit otherwise), agent runs,
+   * calls, and the helpdesk threads the harness or the app wrote. The dataset's own rows are never touched. Anywhere
+   * else only the open cases are closed, as before, so a slip in NIGHT_DB cannot wipe a live order's history.
+   */
   fresh(orderId: string) {
+    if (DB.includes("controlroom_sim")) {
+      const removed = sql(`with calls as (delete from cr_call_turns where call_id in (select id from cr_calls where order_id = ${q(orderId)}) returning 1),
+        c as (delete from cr_calls where order_id = ${q(orderId)} returning 1), ef as (delete from cr_effects where order_id = ${q(orderId)} returning 1),
+        p as (delete from cr_proposals where order_id = ${q(orderId)} returning 1), ev as (delete from cr_events where order_id = ${q(orderId)} returning 1),
+        r as (delete from cr_agent_runs where order_id = ${q(orderId)} returning 1), t as (delete from cr_telemetry where order_id = ${q(orderId)} returning 1),
+        cs as (delete from cr_cases where order_id = ${q(orderId)} returning 1),
+        m as (delete from messages where order_id = ${q(orderId)} and (id like 'msg-night-%' or id like 'msg-app-%' or conversation_id like 'conv-night-%' or conversation_id like 'conv-app-%') returning 1),
+        cv as (delete from conversations where order_id = ${q(orderId)} and (id like 'conv-night-%' or id like 'conv-app-%') returning 1)
+        select (select count(*) from cs) || ' case(s), ' || (select count(*) from p) || ' card(s), ' || (select count(*) from ef) || ' effect(s), ' || (select count(*) from ev) || ' event(s), ' || (select count(*) from t) || ' telemetry row(s), ' || (select count(*) from r) || ' run(s), ' || (select count(*) from c) || ' call(s), ' || (select count(*) from cv) || ' thread(s)'`)
+      this.rec.log(`fresh order (sandbox reset): removed ${removed}`)
+      return
+    }
     const closed = sql(`update cr_cases set status = 'RESOLVED', owner = null, waiting_for = null, waiting_on = null, next_action = 'Closed by the night harness before a new scenario.', next_check_at = null where order_id = ${q(orderId)} and status in ('AGENT_WORKING','NEEDS_DECISION','WAITING_EXTERNAL','HANDLED_BY_OPERATOR') returning id`)
     const parked = sql(`update cr_proposals set status = 'REJECTED', decision_note = 'Closed by the night harness before a new scenario.' where status = 'PENDING' and case_id in (select id from cr_cases where order_id = ${q(orderId)}) returning id`)
     if (closed || parked) this.rec.log(`fresh order: closed ${closed.split("\n").filter(Boolean).length} earlier case(s), ${parked.split("\n").filter(Boolean).length} pending card(s)`)
