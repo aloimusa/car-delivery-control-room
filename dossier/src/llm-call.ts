@@ -65,7 +65,7 @@ const Extraction = z.object({
   escalate: z.boolean(),
 }).strict()
 
-export async function runLlmCall(d: Dossier, persona: Persona, purpose: CallBrief["purpose"], startedAt: string, opts: { model?: string; apiKey?: string } = {}): Promise<{ record: CallRecord; costUsd: number; briefBy: "MODEL" | "RULE" }> {
+export async function runLlmCall(d: Dossier, persona: Persona, purpose: CallBrief["purpose"], startedAt: string, opts: { model?: string; apiKey?: string } = {}): Promise<{ record: CallRecord; costUsd: number; briefBy: "MODEL" | "RULE"; extractionError: string | null }> {
   const apiKey = opts.apiKey ?? process.env.OPENROUTER_API_KEY; if (!apiKey) throw new Error("OPENROUTER_API_KEY is not set")
   const model = opts.model ?? process.env.REASON_MODEL ?? "deepseek/deepseek-v4-pro"
   const composed = await composeBrief(d, purpose, { model, apiKey }); let cost = composed.costUsd ?? 0
@@ -139,10 +139,10 @@ export async function runLlmCall(d: Dossier, persona: Persona, purpose: CallBrie
     startedAt, endedAt: new Date(clock).toISOString(), outcome, engine: "SIMULATED_LLM", triage: extracted?.triage ?? null, toolCalls, turns, slots, toneReview: null,
     retryAfter: outcome === "PARTIAL" ? new Date(clock + 2 * 3600e3).toISOString() : null,
   })
-  return { record, costUsd: cost, briefBy: composed.by }
+  return { record, costUsd: cost, briefBy: composed.by, extractionError: ex.error }
 }
 
-async function extractTurns(apiKey: string, model: string, brief: CallBrief, turns: CallRecord["turns"], inbound: boolean, calleeLabel: string, startedAt: string): Promise<{ extracted: z.infer<typeof Extraction> | null; slots: CallRecord["slots"]; cost: number }> {
+export async function extractTurns(apiKey: string, model: string, brief: CallBrief, turns: CallRecord["turns"], inbound: boolean, calleeLabel: string, startedAt: string): Promise<{ extracted: z.infer<typeof Extraction> | null; slots: CallRecord["slots"]; cost: number; error: string | null }> {
   let cost = 0
   // The day the call is about, for times said without a date: the collection date in the brief, else the call date.
   const aboutDate = brief.mayState.join(" ").match(/\b(\d{1,2}) (October|November|December|January|February|March|April|May|June|July|August|September)\b/)
@@ -156,6 +156,10 @@ async function extractTurns(apiKey: string, model: string, brief: CallBrief, tur
     const e = await complete(apiKey, model, [{ role: "system", content: exSys }, { role: "user", content: transcript + (feedback ? `\n\nPrevious answer rejected: ${feedback}` : "") }], true, 0); cost += e.cost
     try { const parsed = Extraction.safeParse(JSON.parse(e.text.replace(/^```(?:json)?\s*|```\s*$/g, ""))); if (parsed.success) extracted = parsed.data; else feedback = parsed.error.issues.slice(0, 3).map((i) => `${i.path.join(".")}: ${i.message}`).join("; ") } catch (err) { feedback = "not valid JSON" }
   }
+  // A call whose extraction failed twice has no claims and used to say nothing about why: the reason goes to the log
+  // and to the caller, so "0 claims" can be told from "the callee said nothing".
+  const error = extracted ? null : `extraction failed twice: ${feedback || "no answer"}`
+  if (error) console.warn(`[llm-call] ${brief.id}: ${error}`)
   const slots: CallRecord["slots"] = []
   for (const s of extracted?.slots ?? []) {
     const v = SlotValue.safeParse({ slot: s.slot, value: s.value }); if (!v.success) continue
@@ -163,7 +167,7 @@ async function extractTurns(apiKey: string, model: string, brief: CallBrief, tur
     if (slots.some((x) => x.value.slot === s.slot)) continue
     slots.push({ value: v.data, turnSeq: s.turnSeq, quote: s.quote.slice(0, 300) })
   }
-  return { extracted, slots, cost }
+  return { extracted, slots, cost, error }
 }
 
 /** A live phone-line call (VoiceChat): turns from the phone's transcript of record -> typed claims, same CallRecord shape. */
