@@ -1,5 +1,6 @@
-import { Fragment } from "react"
 "use client"
+
+import { Fragment } from "react"
 
 import type { RecordView } from "@/lib/present/types"
 import { fmtDateTime, fmtRange } from "@/lib/present/time"
