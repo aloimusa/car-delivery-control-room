@@ -3,8 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { Icon } from "../icons"
 import { personColor } from "@/lib/present/color"
-import { ClaimsList, Scorecard } from "../calls/review-parts"
-import { PlayCallButton, PlayTurnButton, useCallPlayer } from "../calls/call-audio"
+import { ClaimsList } from "../calls/review-parts"
 import type { CallRecord, CallReview } from "@/lib/present/call-types"
 import "./call-screen.css"
 
@@ -21,7 +20,7 @@ const FRAME_BYTES = 960
 const SILENCE = new ArrayBuffer(FRAME_BYTES)
 const QUIET_MS = 5000
 
-type Phase = "idle" | "checking" | "composing" | "connecting" | "live" | "ending" | "ended" | "failed" | "simulating"
+type Phase = "idle" | "checking" | "composing" | "connecting" | "live" | "ending" | "ended" | "failed"
 /** Whose turn it is, so a pause before a reply reads as thinking rather than a dropped line. */
 type Turn = "listening" | "thinking" | "speaking"
 type Caption = { role: "model" | "user"; text: string; final: boolean; t: number }
@@ -68,10 +67,13 @@ export function CallScreen({ target, onClose, autoStart = false, onResult }: {
     id: string; ws: WebSocket | null; wsPath: string; ctx: AudioContext; stream: MediaStream | null; node: AudioWorkletNode | null
     nextT: number; sources: AudioBufferSourceNode[]; lastMsg: number; reconnected: boolean; heartbeat: number; ended: boolean
   } | null>(null)
-  const flags = useRef({ muted: false, live: false })
+  // Auto-answer: the model plays the other party on the live line. Its lines are spoken into the call as if from the
+  // microphone (the line hears them like any caller), and the microphone stays silent while it is on.
+  const [auto, setAuto] = useState(false)
+  const [autoBusy, setAutoBusy] = useState(false)
+  const flags = useRef({ muted: false, live: false, auto: false, speaking: false })
   flags.current.muted = muted
-  const [simulated, setSimulated] = useState<CallRecord | null>(null)
-  const [simElapsed, setSimElapsed] = useState(0)
+  flags.current.auto = auto
   const captionsEnd = useRef<HTMLDivElement>(null)
 
   useEffect(() => { captionsEnd.current?.scrollIntoView({ block: "end" }) }, [captions])
@@ -215,10 +217,11 @@ export function CallScreen({ target, onClose, autoStart = false, onResult }: {
         if (message.kind === "user_speech_start") setTurn("listening")
         if (message.kind === "user_speech_stop") setTurn("thinking")
         if (message.kind === "model_speech_start" || message.kind === "agent_bos") setTurn("speaking")
-        if (message.kind === "model_speech_stop" || message.kind === "agent_eos") setTurn("listening")
+        if (message.kind === "model_speech_stop" || message.kind === "agent_eos") { setTurn("listening"); if (flags.current.auto) void autoRef.current?.() }
         if (message.kind === "barge_in") { stopPlayback(); setTurn("listening") }
       }
       if (message.type === "text" && message.text) {
+        if (message.role === "user" && flags.current.auto) return
         if (message.role === "user" && message.final) setTurn((value) => value === "speaking" ? value : "thinking")
         caption(message.role === "model" ? "model" : "user", message.text, !!message.final, message.t ?? Date.now() / 1000)
       }
@@ -276,7 +279,7 @@ export function CallScreen({ target, onClose, autoStart = false, onResult }: {
         const current = call.current
         if (!current?.ws || current.ws.readyState !== 1 || !flags.current.live) return
         const modelSpeaking = current.nextT > current.ctx.currentTime
-        current.ws.send(flags.current.muted ? SILENCE : event.data as ArrayBuffer)
+        current.ws.send(flags.current.muted || flags.current.auto ? SILENCE : event.data as ArrayBuffer)
       }
       call.current.heartbeat = window.setInterval(() => {
         const current = call.current
@@ -320,38 +323,63 @@ export function CallScreen({ target, onClose, autoStart = false, onResult }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  /** Both sides played by the model on the call service: Mira from the dossier, the other party from a persona. */
-  const simulate = useCallback(async () => {
-    setPhase("simulating"); setStatus("Both sides are being played by the model…"); setSimulated(null); setResult(null); setTranscript(null); setLinked(null); setExtractError(null)
-    const began = Date.now()
-    const ticker = window.setInterval(() => setSimElapsed(Math.round((Date.now() - began) / 1000)), 1000)
-    try {
-      const response = await fetch("/api/calls/sim", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ref: target.orderRef, purpose: target.purpose }) })
-      const started = await response.json() as { jobId?: string; error?: string }
-      if (!response.ok || !started.jobId) throw new Error(started.error ?? "The call service did not start the call.")
-      const deadline = Date.now() + 5 * 60_000
-      for (;;) {
-        await new Promise((resolve) => setTimeout(resolve, 2500))
-        const poll = await fetch(`/api/calls/jobs/${encodeURIComponent(started.jobId)}`, { cache: "no-store" })
-        if (poll.status === 404) throw new Error("The call service restarted during the call and lost it. Simulate it again.")
-        const job = await poll.json() as { status: string; call?: CallRecord; review?: CallReview | null; error?: string }
-        if (job.status === "done" && job.call) {
-          const call = job.call
-          const t0 = Date.parse(call.startedAt)
-          setSimulated(call)
-          setResult({ call, review: job.review ?? null })
-          setTranscript(call.turns.map((line) => ({ t: (Date.parse(line.startedAt) - t0) / 1000, role: line.speaker === "CALLER" ? "model" : "user", text: line.text })))
-          setStatus("Both sides were played by the model; the call is on the order like any other.")
-          setPhase("ended")
-          break
+  /** The party's reply, spoken into the live call: text from the persona, voice from the call service, frames to the line. */
+  const captionsRef = useRef<Caption[]>([])
+  captionsRef.current = captions
+  const autoRef = useRef<(() => Promise<void>) | null>(null)
+  const speakAsParty = useCallback(async (text: string, mp3: string | null) => {
+    const current = call.current
+    if (!current || current.ended || !current.ws || current.ws.readyState !== 1) return
+    caption("user", text, true, Date.now() / 1000)
+    if (!mp3) return
+    const bytes = Uint8Array.from(atob(mp3), (c) => c.charCodeAt(0))
+    const decoded = await current.ctx.decodeAudioData(bytes.buffer.slice(0))
+    // Resample to the line's 24 kHz mono, then PCM16 in 20 ms frames, paced like a microphone.
+    const offline = new OfflineAudioContext(1, Math.ceil(decoded.duration * 24000), 24000)
+    const source = offline.createBufferSource(); source.buffer = decoded; source.connect(offline.destination); source.start()
+    const mono = (await offline.startRendering()).getChannelData(0)
+    const pcm = new Int16Array(mono.length)
+    for (let i = 0; i < mono.length; i++) { const v = Math.max(-1, Math.min(1, mono[i]!)); pcm[i] = v < 0 ? v * 0x8000 : v * 0x7fff }
+    // Heard on this side too, so the operator follows both voices.
+    const local = current.ctx.createBufferSource(); local.buffer = decoded; local.connect(current.ctx.destination); local.start()
+    flags.current.speaking = true
+    const samplesPerFrame = FRAME_BYTES / 2
+    const began = performance.now()
+    await new Promise<void>((resolve) => {
+      let index = 0
+      const tick = () => {
+        const ws = call.current?.ws
+        if (!ws || ws.readyState !== 1 || call.current?.ended || index * samplesPerFrame >= pcm.length) { resolve(); return }
+        // Send every frame whose time has come; silence padding on the last one.
+        const due = Math.floor((performance.now() - began) / 20)
+        while (index <= due && index * samplesPerFrame < pcm.length) {
+          const frame = new Int16Array(samplesPerFrame)
+          frame.set(pcm.subarray(index * samplesPerFrame, Math.min(pcm.length, (index + 1) * samplesPerFrame)))
+          ws.send(frame.buffer)
+          index += 1
         }
-        if (job.status === "failed") throw new Error(job.error ?? "The model could not finish the call.")
-        if (Date.now() > deadline) throw new Error("The call took too long; it may still finish on the call service.")
+        setTimeout(tick, 20)
       }
+      tick()
+    })
+    flags.current.speaking = false
+  }, [])
+  const autoReply = useCallback(async () => {
+    if (autoBusy || flags.current.speaking || !flags.current.live) return
+    setAutoBusy(true)
+    try {
+      const history = captionsRef.current.filter((item) => item.final).map((item) => ({ role: item.role === "model" ? "caller" as const : "callee" as const, text: item.text }))
+      const response = await fetch("/api/calls/persona-turn", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ref: target.orderRef, purpose: target.purpose, history }) })
+      const turn = await response.json() as { text?: string; audio?: string | null; error?: string }
+      if (!response.ok || !turn.text) throw new Error(turn.error ?? "No reply from the persona.")
+      if (!flags.current.auto) return
+      await speakAsParty(turn.text, turn.audio ?? null)
     } catch (error) {
-      setPhase("failed"); setStatus(error instanceof Error ? error.message : "The simulation failed.")
-    } finally { window.clearInterval(ticker) }
-  }, [target.orderRef, target.purpose])
+      setStatus(error instanceof Error ? error.message : "The model could not answer for the other party.")
+    } finally { setAutoBusy(false) }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoBusy, target.orderRef, target.purpose, speakAsParty])
+  autoRef.current = autoReply
 
   const autoStarted = useRef(false)
   useEffect(() => { if (autoStart && !autoStarted.current) { autoStarted.current = true; void start() } }, [autoStart, start])
@@ -373,10 +401,10 @@ export function CallScreen({ target, onClose, autoStart = false, onResult }: {
         ? <div className="cs-roles">
           <span><b>{target.calleeName}</b> is played by the model from the order dossier.</span>
           <span><b>{target.youAre.replace(/^You are /, "You play ")}</b></span>
-          <small>Start the call to answer with your microphone, or let the model play your side too.</small>
+          <small>Start the call to answer with your microphone, or let the model answer for you; you can switch during the call.</small>
           {phase === "failed" && status && <small>{status}</small>}
         </div>
-        : <p className="cs-hint">{phase === "simulating" ? `${status} ${simElapsed} s` : phase === "live" ? "Say hello. Captions appear as you both speak." : status}</p>)}
+        : <p className="cs-hint">{phase === "live" ? (auto ? "The model answers for the other party. Switch to your microphone at any time." : "Say hello. Captions appear as you both speak.") : status}</p>)}
       {captions.map((item, index) => <p key={index} className={`cs-cap cs-${item.role}${item.final ? "" : " interim"}`}>{item.text}</p>)}
       <div ref={captionsEnd} />
     </div>}
@@ -384,27 +412,26 @@ export function CallScreen({ target, onClose, autoStart = false, onResult }: {
     {phase === "ended" && <div className="cs-transcript">
       <p className="cs-done">{status}{linked ? <> · added to <span className="mono">{linked}</span> on the map</> : null}</p>
       {extracting && <p className="cs-hint">Reading the transcript for claims…</p>}
-      {simulated && <SimulatedPlayback call={simulated} />}
-      {result?.review && <Scorecard review={result.review} compact />}
+
       {result && <div className="cs-claims"><ClaimsList call={result.call} /></div>}
       {!extracting && !result && extractError && <p className="cs-fine">Claims could not be extracted: {extractError}</p>}
       {transcript && transcript.length > 0 ? <ol>{transcript.map((line, index) => <li key={index} className={`cs-${line.role === "model" ? "model" : "user"}`}>
         <small>{clock(line.t)}</small><span>{line.text}</span>
       </li>)}</ol> : <p className="cs-hint">The phone recorded no words for this call.</p>}
-      <p className="cs-fine">{simulated ? "Transcript of a call the model played on both sides." : `Transcript of the ${CALLER_WORDS}'s recording.`} A spoken answer is a claim, not a scan or a signed record.</p>
+      <p className="cs-fine">Transcript of the {CALLER_WORDS}&apos;s recording. A spoken answer is a claim, not a scan or a signed record.</p>
     </div>}
 
     <footer className="cs-controls">
       {inCall && <>
-        <button type="button" className={`cs-btn${muted ? " on" : ""}`} onClick={() => setMuted((value) => !value)} aria-pressed={muted}>{muted ? "Unmute" : "Mute"}</button>
+        <button type="button" className={`cs-btn${auto ? " on" : ""}`} onClick={() => setAuto((value) => !value)} aria-pressed={auto} title="The model answers for the other party; off, your microphone does">{auto ? "Model answers" : "I answer"}</button>
+        <button type="button" className={`cs-btn${muted ? " on" : ""}`} onClick={() => setMuted((value) => !value)} aria-pressed={muted} disabled={auto}>{muted ? "Unmute" : "Mute"}</button>
         <button type="button" className="cs-btn cs-hang" onClick={() => void hangUp()}><Icon name="message" size={13} />Hang up</button>
       </>}
       {(phase === "idle" || phase === "failed") && <>
         <button type="button" className="cs-btn cs-call" onClick={() => void start()} title="Mira calls; you answer with your microphone">{phase === "failed" ? "Try again" : "Start the call"}</button>
-        <button type="button" className="cs-btn" onClick={() => void simulate()} title="The model plays both sides; you listen and read">Simulate both sides</button>
+        <button type="button" className="cs-btn" onClick={() => { setAuto(true); flags.current.auto = true; void start() }} title="The same live call; the model answers for the other party">Simulate both sides</button>
         <button type="button" className="cs-btn" onClick={onClose}>Close</button>
       </>}
-      {phase === "simulating" && <span className="cs-hint">The model is on the call… <button type="button" className="cs-btn" onClick={onClose}>Close</button></span>}
       {phase === "ending" && <span className="cs-hint">Saving the call…</span>}
       {phase === "ended" && <button type="button" className="cs-btn cs-call" onClick={onClose}>Done</button>}
     </footer>
@@ -416,11 +443,4 @@ export function CallOverlay({ target, onClose }: { target: CallTarget; onClose: 
   return <div className="cs-overlay" role="dialog" aria-label={`Call: ${target.purposeLabel}`}>
     <div className="cs-phone"><CallScreen target={target} onClose={onClose} /></div>
   </div>
-}
-
-/** Play the model-played call: all of it, or one turn. Audio exists when the call service rendered it. */
-function SimulatedPlayback({ call }: { call: CallRecord }) {
-  const player = useCallPlayer(call)
-  if (!player.spoken) return null
-  return <div className="cs-play"><PlayCallButton player={player} />{player.playing != null && <PlayTurnButton player={player} seq={player.playing} has />}</div>
 }

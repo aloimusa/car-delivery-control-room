@@ -37,6 +37,24 @@ function calleeSheet(d: Dossier, persona: Persona): string {
     "Answer in one or two natural spoken sentences. Do not list facts you were not asked about. Do not use markdown."].join("\n")
 }
 
+/**
+ * The other party's next line on a live call, from the same persona sheet a simulated call uses: Mira is on the phone
+ * line, the party is played here. `history` is the call so far from the party's point of view (caller = Mira).
+ */
+export async function personaTurn(d: Dossier, persona: Persona, purpose: CallBrief["purpose"], history: { role: "caller" | "callee"; text: string }[], opts: { apiKey?: string } = {}): Promise<{ text: string; costUsd: number }> {
+  const apiKey = opts.apiKey ?? process.env.OPENROUTER_API_KEY; if (!apiKey) throw new Error("OPENROUTER_API_KEY is not set")
+  const inbound = purpose === "DRIVER_INBOUND"
+  const said = history.filter((h) => h.role === "callee").length
+  // The scripted first words: the greeting on an outbound call, the reason for calling on an inbound one.
+  if (said === 0 && !inbound) return { text: persona.greeting, costUsd: 0 }
+  if (said === 0 && inbound && persona.inbound) return { text: persona.inbound.opening, costUsd: 0 }
+  const system = calleeSheet(d, persona) + (inbound && persona.inbound ? `\nYou called the support line because: ${persona.inbound.opening}` : "")
+  const messages = history.map((h) => ({ role: h.role === "caller" ? "user" as const : "assistant" as const, content: h.text }))
+  if (!messages.length || messages[messages.length - 1]!.role === "assistant") messages.push({ role: "user", content: "(They are waiting for you to speak.)" })
+  const r = await complete(apiKey, process.env.CALLEE_MODEL ?? "deepseek/deepseek-v4.1-flash", [{ role: "system", content: system }, ...messages], false, 0.7)
+  return { text: (r.text.split("\n")[0] ?? "").trim() || "Sorry, say that again?", costUsd: r.cost }
+}
+
 const Extraction = z.object({
   triage: z.object({ urgency: Urgency, situation: Situation, turnSeq: z.number().int().nonnegative(), quote: z.string() }).strict().nullable(),
   slots: z.array(z.object({ slot: SlotName, value: z.union([z.string(), z.boolean()]), turnSeq: z.number().int().nonnegative(), quote: z.string() }).strict()).max(16),

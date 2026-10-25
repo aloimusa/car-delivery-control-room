@@ -24,10 +24,10 @@ import { CallPurpose, CallRecord, emptyLive, type CallBrief } from "./live"
 import { PERSONAS } from "./sim/personas"
 import { runSimulatedCall } from "./sim/call"
 import { composeBrief, reason, renderDossier, type ReasonRun } from "./reason"
-import { ingestTranscript, runLlmCall } from "./llm-call"
+import { ingestTranscript, runLlmCall, personaTurn } from "./llm-call"
 import { reviewCall } from "./review"
 import { cardText, contextPrompt } from "./context"
-import { renderCallAudio, ttsEnabled } from "./tts"
+import { renderCallAudio, ttsEnabled, synthesize, TTS } from "./tts"
 import { pullLive } from "./livepull"
 import { derive, renderDerived } from "./derived"
 import { RunMode, newRunReport, planTimeline, runDelivery, type RunReport } from "./run"
@@ -187,6 +187,23 @@ createServer(async (req, res) => {
       const id = byRef.get(parts[1]); if (!id) return json(res, 404, { error: `no order ${parts[1]}` })
       const purpose = CallPurpose.safeParse(parts[2]); if (!purpose.success) return json(res, 400, { error: `unknown purpose ${parts[2]}` })
       try { return json(res, 200, briefFor(buildDossier(ds, id), purpose.data)) } catch (e) { return json(res, 400, { error: (e as Error).message }) }
+    }
+    if (parts[0] === "calls" && req.method === "POST" && parts[1] === "persona-turn") {
+      // The other party's next line on a live call: {ref, purpose, twist?, history:[{role: caller|callee, text}]} ->
+      // {text, audio (base64 mp3, the callee voice) | null}. Mira stays on the phone line; only this side is played here.
+      const input = JSON.parse((await body(req)) || "{}") as { ref?: string; purpose?: string; twist?: string; history?: { role: "caller" | "callee"; text: string }[] }
+      const id = input.ref ? byRef.get(input.ref) : undefined; if (!id) return json(res, 404, { error: `no order ${input.ref}` })
+      const purpose = CallPurpose.safeParse(input.purpose); if (!purpose.success) return json(res, 400, { error: `unknown purpose ${input.purpose}` })
+      const twist = Twist.safeParse(input.twist ?? "cooperative"); if (!twist.success) return json(res, 400, { error: `unknown twist ${input.twist}` })
+      const d = await dossierFor(input.ref!, id, true)
+      let persona; try { persona = personaFor(d, purpose.data, twist.data) } catch (e) { return json(res, 400, { error: (e as Error).message }) }
+      const history = (input.history ?? []).filter((h) => (h.role === "caller" || h.role === "callee") && typeof h.text === "string").slice(-24)
+      try {
+        const turn = await personaTurn(d, persona, purpose.data, history)
+        let audio: string | null = null
+        if (process.env.OPENROUTER_API_KEY) { try { audio = (await synthesize(turn.text, TTS.voiceCallee)).toString("base64") } catch { audio = null } }
+        return json(res, 200, { text: turn.text, audio, personaId: persona.id, costUsd: turn.costUsd })
+      } catch (e) { return json(res, 502, { error: (e as Error).message.slice(0, 300) }) }
     }
     if (parts[0] === "calls" && req.method === "POST" && parts[1] === "sim") {
       // A model-played call on any order: {ref, purpose, twist?, at?}. The counterpart comes from the dossier under the twist.
