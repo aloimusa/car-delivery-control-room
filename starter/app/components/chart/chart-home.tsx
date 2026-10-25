@@ -131,7 +131,10 @@ export function ChartHome({ initial }: { initial: ChartView }) {
   const [replay, setReplay] = useState<Replay | null>(null)
   // "400 orders?": three hundred made-up orders beside the real hundred, in this component only.
   const [crowd, setCrowd] = useState(false)
-  const crowdNodes = useMemo(() => (crowd ? buildCrowd(view.nodes.filter((node) => !isCrowd(node.orderId)), view.simNow) : []), [crowd, view.nodes, view.simNow])
+  const crowdView = useMemo(() => (crowd ? buildCrowd(view.nodes.filter((node) => !isCrowd(node.orderId)), view.routes, view.simNow) : { nodes: [], routes: {} }), [crowd, view.nodes, view.routes, view.simNow])
+  const crowdNodes = crowdView.nodes
+  // The routes to draw: the dataset's, plus the crowd's while it is shown.
+  const routes = useMemo(() => (crowd ? { ...view.routes, ...crowdView.routes } : view.routes), [crowd, view.routes, crowdView.routes])
 
   // While replaying, vessels sit at their last stored fix at the chosen time; no fix then, no vessel.
   const nodes = useMemo(() => {
@@ -396,7 +399,7 @@ export function ChartHome({ initial }: { initial: ChartView }) {
     if (!ready || !leaflet || !layers.current) return
     const keep = new Set<string>()
     for (const node of nodes) {
-      const route = view.routes[node.orderId]
+      const route = routes[node.orderId]
       if (node.kind !== "vessel" || !route) continue
       keep.add(node.orderId)
       const coords = route.parts.flatMap((part) => part.coords)
@@ -422,7 +425,7 @@ export function ChartHome({ initial }: { initial: ChartView }) {
       if (keep.has(id)) continue
       track.done.remove(); track.ahead.remove(); tracks.current.delete(id)
     }
-  }, [ready, nodes, view.routes])
+  }, [ready, nodes, routes])
 
   // ---- the route track. Selected: in the accent colour, every other route dimmed, the destination enlarged and named with
   // the promise, and the pickup named. Hovered: brightened, ends named.
@@ -432,7 +435,7 @@ export function ChartHome({ initial }: { initial: ChartView }) {
     if (!ready || !leaflet || !layers.current) return
     layers.current.route.clearLayers()
     if (!trackId) return
-    const route = view.routes[trackId]
+    const route = routes[trackId]
     const node = byId.get(trackId)
     if (!route || !node) return
     // Split the track where the car is: the part behind it is drawn brighter.
@@ -457,7 +460,7 @@ export function ChartHome({ initial }: { initial: ChartView }) {
     if (last) leaflet.circleMarker(last, { pane: "route", radius: selectedNow ? 7 : 3.5, className: `track-end track-to${selectedNow ? " track-dest" : ""}`, interactive: false })
       .bindTooltip(selectedNow ? `<b>${escape(node.toName)}</b>${node.promiseText ? `<span>promised ${escape(node.promiseText)}</span>` : ""}` : `Delivery · ${escape(node.to)}`,
         { permanent: true, direction: "right", offset: [10, 0], className: `track-label${selectedNow ? " track-label-dest" : ""}` }).addTo(layers.current.route)
-  }, [ready, trackId, selectedId, view.routes, byId])
+  }, [ready, trackId, selectedId, routes, byId])
 
   // ---- a new selection with a route frames the whole journey left of the panel, so pickup and destination are both in view
   const framed = useRef<string | null>(null)
@@ -465,12 +468,12 @@ export function ChartHome({ initial }: { initial: ChartView }) {
     const leaflet = L.current
     if (!ready || !leaflet || !map.current || !selectedId || framed.current === selectedId) return
     framed.current = selectedId
-    const route = view.routes[selectedId]
+    const route = routes[selectedId]
     if (!route) return
     const points = route.parts.flatMap((part) => part.coords)
     if (points.length < 2) return
     map.current.flyToBounds(leaflet.latLngBounds(points), { paddingTopLeft: [80, 80], paddingBottomRight: [500, 90], maxZoom: 9, duration: 0.7 })
-  }, [ready, selectedId, view.routes])
+  }, [ready, selectedId, routes])
   useEffect(() => { if (!selectedId) framed.current = null }, [selectedId])
   useEffect(() => {
     if (!map.current) return
@@ -484,11 +487,11 @@ export function ChartHome({ initial }: { initial: ChartView }) {
     const node = byId.get(id)
     setSelectedId(id)
     // A car with a route is framed by its whole journey (below); anything else is flown to.
-    if (node && map.current && !view.routes[id]) {
+    if (node && map.current && !routes[id]) {
       const target = Math.max(map.current.getZoom(), FAN_ZOOM)
       map.current.flyTo([node.lat, node.lng], target, { duration: 0.7 })
     }
-  }, [byId, view.routes])
+  }, [byId, routes])
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.target instanceof HTMLElement && ["INPUT", "TEXTAREA"].includes(event.target.tagName)) return
@@ -507,7 +510,7 @@ export function ChartHome({ initial }: { initial: ChartView }) {
 
   return <AppFrame section="map" rail snapshotAt={view.snapshotAt} counts={{ map: view.needs.length }}
 >
-    <div className={`chart-home z-${zoom < 6 ? "low" : zoom < 8 ? "mid" : "high"}${selected ? " has-dossier" : ""}${selected && view.routes[selected.orderId] ? " has-route" : ""}`} data-chart={theme}>
+    <div className={`chart-home z-${zoom < 6 ? "low" : zoom < 8 ? "mid" : "high"}${selected ? " has-dossier" : ""}${selected && routes[selected.orderId] ? " has-route" : ""}`} data-chart={theme}>
       <div ref={holder} className="chart-map" role="region" aria-label="Map of deliveries. Car positions are simulated phone GPS." />
 
       {!selected && <NeedsPeek view={view} onPick={focus} onHover={setHoverId} selectedId={selectedId} />}
