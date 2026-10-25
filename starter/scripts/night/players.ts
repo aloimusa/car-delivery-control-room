@@ -52,7 +52,14 @@ export async function play(rec: Rec, view: OrderView, who: Parameters<typeof she
 
 /** A yes/no judgement from the model with a one-line reason, for checks a regex cannot make (language, tone). */
 export async function judge(rec: Rec, question: string, material: string): Promise<{ yes: boolean; why: string }> {
-  const out = await chat("You judge transcripts for a QA harness. Answer with JSON only: {\"yes\": boolean, \"why\": string (one short sentence)}.", [{ role: "user", content: `${question}\n\n---\n${material.slice(0, 6000)}` }], { temperature: 0, json: true })
-  rec.costUsd += out.costUsd
-  try { const parsed = JSON.parse(out.text) as { yes?: boolean; why?: string }; return { yes: Boolean(parsed.yes), why: String(parsed.why ?? "") } } catch { return { yes: false, why: `unreadable judgement: ${out.text.slice(0, 120)}` } }
+  // The player model now and then answers nothing at all; an empty or unreadable judgement is asked once more
+  // before it is recorded, because a REVIEW that says only "unreadable judgement" sends the morning nowhere.
+  let text = ""
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const out = await chat("You judge transcripts for a QA harness. Answer with JSON only: {\"yes\": boolean, \"why\": string (one short sentence)}.", [{ role: "user", content: `${question}\n\n---\n${material.slice(0, 6000)}` }], { temperature: 0, json: true })
+    rec.costUsd += out.costUsd
+    text = out.text
+    try { const parsed = JSON.parse(text) as { yes?: boolean; why?: string }; return { yes: Boolean(parsed.yes), why: String(parsed.why ?? "") } } catch { /* ask again */ }
+  }
+  return { yes: false, why: `unreadable judgement: ${text.slice(0, 120) || "(empty answer twice)"}` }
 }
