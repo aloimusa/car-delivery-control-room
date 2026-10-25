@@ -48,8 +48,10 @@ function line(item: DossierItem): string {
 }
 
 export function renderDossier(d: Dossier, opts: { maxHistory?: number } = {}): string {
+  // The static records come first and the live layer last, so a prompt cache keeps the long unchanged prefix between
+  // turns; the clock, which changes every build, is said at the end.
   const out: string[] = [
-    `# Dossier for order ${d.order.reference}, as of ${d.asOf}. Phase: ${d.phase.phase} (${d.phase.basis}).`,
+    `# Dossier for order ${d.order.reference}.`,
     "Every item carries its evidence strength. Ladder: REFERENCE (profile), REQUEST, PLAN, QUOTE (not a booking), BOOKING (not proof of movement), COMMITMENT (customer agreed), CLAIM (someone said), OBSERVATION (device/system saw), VERIFIED, REJECTED, DECISION, SIGNAL (look, not a diagnosis), PROPOSAL (not a change), RECORD.",
     "",
   ]
@@ -81,6 +83,7 @@ export function renderDossier(d: Dossier, opts: { maxHistory?: number } = {}): s
     for (const c of d.live.cases) out.push(`- [${c.status} · ${c.urgency} · ${c.caseKind}] ${c.title}: ${c.summary}${c.waitingFor ? ` (waiting for ${c.waitingFor})` : ""}`)
     out.push("")
   }
+  out.push(`## AS OF\n- ${d.asOf}. Phase: ${d.phase.phase} (${d.phase.basis}).`, "")
   return out.join("\n")
 }
 

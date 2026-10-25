@@ -245,9 +245,12 @@ export const TOOL_DEFINITIONS: Record<ToolName, Anthropic.Tool> = {
  * (`TOOL_AUDIENCES`), so the tools the model is offered and the calls the gate allows cannot drift apart. The
  * operator's "Ask the agent" box gets only the read tools.
  */
-export function toolsFor(audience: GateContext["audience"], readOnly = false): Anthropic.Tool[] {
+/** The readers the dossier replaces when it is in the message; still allowed by the gate, no longer offered. */
+const DOSSIER_COVERS: readonly ToolName[] = ["get_order_context", "get_timeline", "get_telemetry", "get_active_codes"]
+
+export function toolsFor(audience: GateContext["audience"], readOnly = false, withDossier = false): Anthropic.Tool[] {
   const names = (Object.keys(TOOL_DEFINITIONS) as ToolName[])
-    .filter((name) => TOOL_AUDIENCES[name].includes(audience) && (!readOnly || READ_TOOLS.includes(name)))
+    .filter((name) => TOOL_AUDIENCES[name].includes(audience) && (!readOnly || READ_TOOLS.includes(name)) && !(withDossier && DOSSIER_COVERS.includes(name)))
   const books = playbooks().map((book) => book.name)
   return names.map((name) => {
     const tool = TOOL_DEFINITIONS[name]

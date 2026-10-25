@@ -140,3 +140,35 @@ message the driver, ask the site, propose, wait, hand over, close. Reading shoul
 **What I would not change.** The derived layer waking the model only on change; typed outputs with citations; the
 approval gate in code rather than in a prompt; the safety templates. Those are the parts that made the night's faults
 findable and fixable.
+
+## Pushing into the dossier (the write path), reviewed
+
+Reading is one text for every model. Writing is deliberately narrower, and that is what keeps the text worth reasoning
+over. What gets in, and how:
+
+| What | Who writes it | How it is typed | Model output? |
+|---|---|---|---|
+| Dataset records | the packet | zod schemas per collection, strict; graded by evidence strength and membership | no |
+| Cases, events, proposals, telemetry | the app (gate, triggers, tick, helpdesk) into Postgres; pulled by the dossier service each build | `liveFromPayload`: every row through a zod schema; a row that does not fit is dropped and counted, never coerced | the agent's own messages and notes appear as events, marked as the agent's; its proposals as cards, marked as cards |
+| Helpdesk messages since the snapshot | the app | typed as app events, internal notes flagged | an operator's sent draft is the operator's message |
+| Calls | the call service (`storeCall`), one JSON per call id | `CallRecord` zod schema; a transcript's facts enter only as **claims that cite a turn** (`slots`), extracted by the model and validated against the slot vocabulary; unknown slots and turns the callee did not speak are dropped | the extraction is model output, but it is a claim with a quote, never a fact |
+| The reasoning step's output | nowhere in the dossier | it is shown (headline, watch lines, card) and kept in run reports; the next build does not read it | kept out on purpose |
+| Briefs, suggested replies | nowhere | cached in memory, shown, discarded | kept out on purpose |
+
+Three properties hold across the table: every item has a provenance and a strength; nothing a model wrote comes
+back as a fact (the only model-written items are claims, and a claim says who said it and in which turn); and writes
+are idempotent by id (a call, an event, a record), so a rerun or a restart cannot double anything. The one place that
+was not idempotent, call ids built from the simulated minute, was fixed this morning.
+
+Two things worth tightening later: the case agent's `update_case` summary is free text that reaches the dossier as a
+case field (it is marked as the agent's, but it is still prose a later model will read as context), and the helpdesk
+"internal note" is the only operator-written free text that enters the dossier without a counterparty.
+
+## The single context, implemented
+
+Since commit `polish` today, every case-agent turn starts with the dossier service's rendered dossier (static records,
+then the live layer, then the clock, then the derived items) as the first block of its message, cache-marked, with the
+case notes after it. The four record readers (`get_order_context`, `get_timeline`, `get_telemetry`, `get_active_codes`)
+are no longer offered while a dossier is present; the gate still allows them, so a one-line change brings them back.
+When the dossier service does not answer within six seconds, the turn runs as before. The rendered dossier now says
+its clock at the end instead of in its first line, so the long static prefix stays cacheable between turns.

@@ -12,6 +12,7 @@ import type { Audience, Channel, ToolCallTrace } from "@/lib/cr/types"
 import { agentModel, llm, usageCost } from "./client"
 import { AGENT_ID, MAX_ITERATIONS, MAX_TOKENS, deepEffort, fastEffort, type Effort } from "./config"
 import { loadOrderFacts, type End, type OrderFacts } from "./context"
+import { dossierText } from "./dossier-text"
 import { loadDriverSafetyContext, safetyLineForModel, screenDriverMessage, type Screen } from "./drivability"
 import { agentCouldNotFinish, ensureOpenCaseFields, replyDeadlineMinutes } from "./followup"
 import { gateNote, submitProposal } from "./gate"
@@ -464,6 +465,9 @@ export async function runTurn(request: TurnRequest): Promise<TurnResult> {
   const effort = effortFor(request)
   const turnStartedAt = simNow()
   const notes = await caseNotes(request, caseRow, facts)
+  // One context for every reader: the dossier service's rendered dossier, static records first and the live layer last,
+  // goes in as its own block ahead of the case notes. Without it (service down) the turn runs on the read tools.
+  const dossier = asking ? null : await dossierText(facts.reference)
   const run = await startRun({ caseId: caseRow.id, orderId: caseRow.orderId, audience: request.audience, model, effort, input: request.input })
   await updateCase(caseRow.id, { lastRunStatus: "RUNNING", lastRunAt: simNow() })
   const state: TurnState = {
@@ -478,9 +482,9 @@ export async function runTurn(request: TurnRequest): Promise<TurnResult> {
     costUsd: 0,
     sideEffects: false,
     waitSet: false,
-    seenIds: new Set(idsIn(notes)),
+    seenIds: new Set(idsIn(notes + (dossier?.text ?? ""))),
   }
-  const tools = toolsFor(request.audience, asking)
+  const tools = toolsFor(request.audience, asking, dossier != null)
   const system: Anthropic.TextBlockParam[] = [{ type: "text", text: systemPrompt(request.audience), cache_control: { type: "ephemeral" } }]
   const usage: Usage = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, cost_usd: 0, calls: 0, attempts: 0 }
   let messages: Anthropic.MessageParam[] = []
@@ -499,7 +503,9 @@ export async function runTurn(request: TurnRequest): Promise<TurnResult> {
   // One retry, only when nothing reached anyone and nothing changed in the failed attempt.
   for (let attempt = 0; attempt < 2; attempt++) {
     usage.attempts = attempt + 1
-    messages = [{ role: "user", content: notes }]
+    messages = [{ role: "user", content: dossier
+      ? [{ type: "text", text: `<dossier as_of="${dossier.asOf ?? ""}">\n${dossier.text}\n</dossier>`, cache_control: { type: "ephemeral" } }, { type: "text", text: notes }]
+      : notes }]
     let cutOff = false
     error = null
     try {

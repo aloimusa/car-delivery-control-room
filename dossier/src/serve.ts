@@ -29,7 +29,7 @@ import { reviewCall } from "./review"
 import { cardText, contextPrompt } from "./context"
 import { renderCallAudio, ttsEnabled } from "./tts"
 import { pullLive } from "./livepull"
-import { derive } from "./derived"
+import { derive, renderDerived } from "./derived"
 import { RunMode, newRunReport, planTimeline, runDelivery, type RunReport } from "./run"
 import { Twist, personaFor } from "./sim/persona-from-dossier"
 import { SuggestThread, suggestReplies } from "./suggest"
@@ -86,6 +86,14 @@ createServer(async (req, res) => {
       // ?live=1 pulls what the app has recorded (clock, telemetry, timeline, cases) and builds as of the app's clock.
       const id = byRef.get(parts[1]); if (!id) return json(res, 404, { error: `no order ${parts[1]}` })
       return json(res, 200, await dossierFor(parts[1], id, url.searchParams.get("live") === "1"))
+    }
+    if (parts[0] === "dossier" && parts[1] && parts[2] === "text") {
+      // The dossier as the model reads it (static records first, the live layer and the clock last, then the derived
+      // layer): the one context every reader shares. ?live=0 reads the snapshot only.
+      const id = byRef.get(parts[1]); if (!id) return json(res, 404, { error: `no order ${parts[1]}` })
+      const d = await dossierFor(parts[1], id, url.searchParams.get("live") !== "0")
+      res.writeHead(200, { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store", "x-as-of": d.asOf, "x-live": String(d.live.pulledFrom != null) })
+      return res.end(renderDossier(d) + "\n" + renderDerived(derive(d)))
     }
     if (parts[0] === "derived" && parts[1]) {
       // What the rules say is due, at risk, silent or in conflict, as of the dossier's time (live with ?live=1).
