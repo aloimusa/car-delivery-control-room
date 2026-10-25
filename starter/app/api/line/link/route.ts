@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { activeDriverId, driverName, loadOrderFacts } from "@/lib/agent/context"
 import { appendEvent, resolveOrder } from "@/lib/cr/queries"
 import type { CallRecord, CallReview } from "@/lib/present/call-types"
 
@@ -33,7 +34,15 @@ export async function POST(request: Request) {
   const order = await resolveOrder(body.orderRef)
   if (!order) return NextResponse.json({ error: "Order not found" }, { status: 404 })
   const purpose = typeof body.purpose === "string" ? body.purpose : "CALL"
-  const who = typeof body.who === "string" ? body.who : "the other party"
+  const inbound = purpose === "DRIVER_INBOUND"
+  // The screen names who is on the far end of the line from where the user sits. On an inbound call the user is the
+  // driver and the far end is Road Desk, so the record names the driver instead: the call is with them, not with us.
+  let who = typeof body.who === "string" ? body.who : "the other party"
+  if (inbound) {
+    const facts = await loadOrderFacts(order.id).catch(() => null)
+    const driverId = facts ? activeDriverId(facts) : null
+    who = (driverId ? await driverName(driverId).catch(() => null) : null) ?? "the driver"
+  }
   const seconds = typeof body.duration === "number" ? Math.round(body.duration) : null
   const transcript = Array.isArray(body.transcript) ? body.transcript.filter((line) => typeof line?.text === "string").slice(0, 400) : []
   const startedMs = typeof body.started === "number" ? body.started * 1000 : Date.now() - (seconds ?? 0) * 1000
@@ -69,9 +78,11 @@ export async function POST(request: Request) {
   const event = await appendEvent({
     caseId: null, orderId: order.id, actorType: "system", actorId: "roaddesk-line",
     kind: "note", channel: purpose === "DRIVER_INBOUND" ? "driver_voice" : "system",
-    body: `Live call on the Road Desk line with ${who}${seconds != null ? `, ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}` : ""}. Recorded on the phone line.`,
+    body: inbound
+      ? `${who} called the Road Desk line${seconds != null ? `, ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}` : ""}. Recorded on the phone line.`
+      : `Live call on the Road Desk line with ${who}${seconds != null ? `, ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}` : ""}. Recorded on the phone line.`,
     data: {
-      line_call_id: body.callId, purpose, who, duration_s: seconds, transcript, caller: "roaddesk",
+      line_call_id: body.callId, purpose, who, direction: inbound ? "INBOUND" : "OUTBOUND", duration_s: seconds, transcript, caller: "roaddesk",
       ingested_call_id: ingested?.call.id ?? null, review: ingested?.review ?? null,
     },
   })
