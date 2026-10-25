@@ -38,7 +38,8 @@ export function Composer({ to, channelLabel, suggest, send, onSent, autoFocus = 
   const [sent, setSent] = useState("")
   const area = useRef<HTMLTextAreaElement>(null)
 
-  useEffect(() => { if (autoFocus) area.current?.focus() }, [autoFocus])
+  // Focus without scrolling: the thread opens at its head with the cursor already in the box, not jumped to the foot.
+  useEffect(() => { if (autoFocus) area.current?.focus({ preventScroll: true }) }, [autoFocus])
 
   const askDrafts = async () => {
     setDrafting(true); setError("")

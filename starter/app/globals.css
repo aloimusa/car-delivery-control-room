@@ -634,7 +634,7 @@ details.more > :not(summary) { margin-top: 8px; }
 }
 
 /* ── Inbox as a mailbox ─────────────────────────────────────────────────── */
-.mailbox { display: grid; grid-template-columns: minmax(400px, 500px) minmax(0, 1fr); flex: 1; min-height: 0; height: calc(100dvh - var(--role-bar)); }
+.mailbox { display: grid; grid-template-columns: minmax(380px, 460px) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); flex: 1; min-height: 0; height: calc(100dvh - var(--role-bar)); }
 .mail-list { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--hair); background: var(--birch); }
 .mail-list-head { padding: 22px 20px 12px; }
 .mail-list-head h1 { font-family: var(--font-display); font-weight: 600; font-size: 22px; letter-spacing: -0.02em; line-height: 1.1; }

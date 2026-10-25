@@ -1,7 +1,7 @@
 /* The operator's composer: mode tabs, drafts from the dossier, the text, one row of controls. */
-.composer { display: grid; gap: 10px; margin-top: 14px; padding: 14px 16px 12px; border-radius: 14px; background: var(--birch); box-shadow: 0 0 0 1px var(--hair); }
+.composer { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; margin-top: 14px; padding: 14px 16px 12px; border-radius: 14px; background: var(--birch); box-shadow: 0 0 0 1px var(--hair); container-type: inline-size; }
 .composer.internal { background: var(--tray); box-shadow: 0 0 0 1px var(--sand); }
-.composer-mode { display: flex; gap: 4px; padding: 3px; border-radius: 999px; background: var(--hair-soft); width: fit-content; max-width: 100%; }
+.composer-mode { display: flex; flex-wrap: wrap; gap: 4px; padding: 3px; border-radius: 999px; background: var(--hair-soft); width: fit-content; max-width: 100%; }
 .composer-mode button { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border: 0; border-radius: 999px; background: transparent; font-size: 13px; font-weight: 600; color: var(--muted); white-space: nowrap; }
 .composer-mode button small { font-size: 11.5px; font-weight: 400; color: var(--subtle); }
 .composer-mode button[aria-selected="true"] { background: var(--birch); color: var(--ink); box-shadow: 0 1px 2px var(--shadow-lift, rgba(0,0,0,.08)); }
@@ -48,6 +48,10 @@
 .mail-read .composer { margin-top: 18px; }
 .mail-read .chat { margin-top: 18px; }
 
+/* A narrow composer (the inbox's reading pane beside a wide list) drops the mode captions before the pills wrap. */
+@container (max-width: 470px) {
+  .composer-mode button small { display: none; }
+}
 @media (max-width: 640px) {
   .composer-mode button small { display: none; }
   .composer-foot { flex-wrap: wrap; }
