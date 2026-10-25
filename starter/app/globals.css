@@ -263,15 +263,15 @@ ul, ol { padding: 0; list-style: none; }
 .card-route { font-size: 12.5px; color: var(--brown); }
 .card-route span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .card-route .icon { color: var(--sand); }
-.card-date { margin-top: 3px; font-size: 12.5px; }
+.card-date { flex-wrap: wrap; margin-top: 3px; font-size: 12.5px; }
 .card-date-label { color: var(--subtle); flex: none; }
 .card-date-value { font-weight: 500; color: var(--ink); white-space: nowrap; }
-.card-date-note { color: var(--subtle); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card-date-note { min-width: 0; color: var(--subtle); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .card-date.tone-danger .card-date-value, .card-date.tone-danger .card-date-note { color: var(--red-ink); }
 .card-date.tone-warn .card-date-value, .card-date.tone-warn .card-date-note { color: var(--orange-ink); }
 .card-date.tone-ok .card-date-note { color: var(--green-ink); }
 .card-tray { display: grid; gap: 4px; padding: 8px 14px 9px; border-top: 1px solid var(--hair-soft); background: var(--tray); }
-.tray-line { display: flex; align-items: flex-start; gap: 7px; font-size: 12px; line-height: 16px; color: var(--brown); }
+.tray-line { display: flex; align-items: flex-start; gap: 7px; min-width: 0; font-size: 12px; line-height: 16px; color: var(--brown); }
 .tray-line .icon { margin-top: 1px; width: 14px; height: 14px; }
 .tray-line span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tray-line.tone-danger { color: var(--red-ink); }
