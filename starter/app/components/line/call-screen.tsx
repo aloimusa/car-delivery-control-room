@@ -19,12 +19,22 @@ const CALLER_WORDS = "Road Desk line"
 const FRAME_BYTES = 960
 const SILENCE = new ArrayBuffer(FRAME_BYTES)
 const QUIET_MS = 5000
+// When the model answers for the party: it speaks once Mira's turn is over, which is her text complete (the line's
+// turn_end marker), her audio drained on this side, and this much quiet. Without a turn_end (an error on the line, an
+// older phone server) the longer wait stands in for it, so a pause between two of her sentences is not taken for her
+// turn's end.
+const SETTLE_MS = 700
+const SETTLE_NO_TURN_END_MS = 2500
+// The party's goodbye ends the call: after Mira's reply to it, or in any case after this long.
+const CLOSE_AFTER_MS = 8000
 
 type Phase = "idle" | "checking" | "composing" | "connecting" | "live" | "ending" | "ended" | "failed"
 /** Whose turn it is, so a pause before a reply reads as thinking rather than a dropped line. */
 type Turn = "listening" | "thinking" | "speaking"
 type Caption = { role: "model" | "user"; text: string; final: boolean; t: number }
 type Line = { t: number; role: string; text: string }
+/** The party's next line from the call service: words, voice, and whether it was a goodbye. */
+type PersonaTurn = { text: string; audio: string | null; end: boolean }
 
 export type CallTarget = {
   /** Order reference, e.g. CD-420584. */
@@ -70,8 +80,10 @@ export function CallScreen({ target, onClose, autoStart = false, onResult }: {
   // Auto-answer: the model plays the other party on the live line. Its lines are spoken into the call as if from the
   // microphone (the line hears them like any caller), and the microphone stays silent while it is on.
   const [auto, setAuto] = useState(false)
-  const [autoBusy, setAutoBusy] = useState(false)
   const flags = useRef({ muted: false, live: false, auto: false, speaking: false })
+  // The party's turn-taking: Mira's turn complete (turnEnded), her audio heard since (gotAudio), the reply fetched while
+  // she is still speaking (prefetch), a trigger that arrived while a reply was under way (pending), and the goodbye (closing).
+  const as = useRef({ turnEnded: false, gotAudio: false, armedAt: 0, quietSince: 0, poller: 0, prefetch: null as Promise<PersonaTurn> | null, busy: false, pending: false, closing: false, closeTimer: 0, retries: 0 })
   flags.current.muted = muted
   flags.current.auto = auto
   const captionsEnd = useRef<HTMLDivElement>(null)
@@ -109,6 +121,7 @@ export function CallScreen({ target, onClose, autoStart = false, onResult }: {
     const source = current.ctx.createBufferSource()
     source.buffer = audio
     source.connect(current.ctx.destination)
+    as.current.gotAudio = true
     // Gapless: schedule back to back about 100 ms ahead; resync after an underrun.
     const now = current.ctx.currentTime
     if (current.nextT < now + 0.02) current.nextT = now + 0.1
@@ -140,6 +153,8 @@ export function CallScreen({ target, onClose, autoStart = false, onResult }: {
     const current = call.current
     if (!current) return
     clearInterval(current.heartbeat)
+    disarm()
+    if (as.current.closeTimer) { window.clearTimeout(as.current.closeTimer); as.current.closeTimer = 0 }
     stopPlayback()
     try { if (current.ws) { current.ws.onclose = null; current.ws.close() } } catch { /* closing */ }
     try { current.stream?.getTracks().forEach((track) => track.stop()) } catch { /* stopped */ }
@@ -173,7 +188,9 @@ export function CallScreen({ target, onClose, autoStart = false, onResult }: {
       const response = await fetch("/api/line/link", {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({ orderRef: target.orderRef, callId: current.id, purpose: target.purpose, who: target.calleeName, duration: record?.duration ?? null,
-          started: record?.started ?? null, ended: record?.ended ?? null, transcript: record?.transcript ?? [], caller: CALLER }),
+          started: record?.started ?? null, ended: record?.ended ?? null, transcript: record?.transcript ?? [], caller: CALLER,
+          // The phone's recording, so the call service can cut it per turn and the call can be heard on the order.
+          audioUrl: new URL(`${LINE}/calls/${encodeURIComponent(current.id)}/audio/mix.wav`, window.location.href).href }),
       })
       const linkedBody = (await response.json().catch(() => null)) as { ingested?: LiveResult | null; ingestError?: string | null } | null
       if (response.ok) setLinked(target.orderRef)
@@ -216,14 +233,19 @@ export function CallScreen({ target, onClose, autoStart = false, onResult }: {
       } else if (message.type === "marker") {
         if (message.kind === "user_speech_start") setTurn("listening")
         if (message.kind === "user_speech_stop") setTurn("thinking")
-        // Mira speaks sentence by sentence; a stop is the end of her turn only if she has not started again within a
-        // moment. The party answers after that settle, never between two of her sentences.
-        if (message.kind === "model_speech_start" || message.kind === "agent_bos") { setTurn("speaking"); if (settle.current) { window.clearTimeout(settle.current); settle.current = 0 } }
-        if (message.kind === "model_speech_stop" || message.kind === "agent_eos") {
-          setTurn("listening")
-          if (flags.current.auto) { if (settle.current) window.clearTimeout(settle.current); settle.current = window.setTimeout(() => { settle.current = 0; if (flags.current.auto) void autoRef.current?.() }, 1800) }
+        if (message.kind === "model_speech_start" || message.kind === "agent_bos") { setTurn("speaking"); as.current.quietSince = 0 }
+        // Mira speaks sentence by sentence. turn_end says her text is complete: the party's reply is fetched now, while
+        // her last sentences still play, and spoken once her audio has drained here. A stop without a turn_end only
+        // arms the longer wait, so she is never answered between two of her sentences.
+        if (message.kind === "turn_end") {
+          as.current.turnEnded = true
+          if (flags.current.auto && !as.current.closing && !as.current.busy && !as.current.prefetch) as.current.prefetch = fetchPersonaRef.current?.() ?? null
+          arm()
         }
+        if (message.kind === "model_speech_stop" || message.kind === "agent_eos") { setTurn("listening"); arm() }
         if (message.kind === "barge_in") { stopPlayback(); setTurn("listening") }
+        // The line could not take its turn: the party speaks again after the long wait rather than both sides waiting forever.
+        if (message.kind === "error") { setStatus(`The line reported an error${typeof (message as unknown as { where?: unknown }).where === "string" ? ` (${(message as unknown as { where: string }).where})` : ""}.`); arm() }
       }
       if (message.type === "text" && message.text) {
         if (message.role === "user" && flags.current.auto) return
@@ -253,7 +275,8 @@ export function CallScreen({ target, onClose, autoStart = false, onResult }: {
     try {
       const book = await fetch(`${LINE}/phonebook`, { cache: "no-store" }).then((response) => response.ok ? response.json() : null) as { busy?: unknown; contacts?: { id: string; status: string; detail?: string }[] } | null
       if (!book) throw new Error("The phone line is not reachable.")
-      if (book.busy) throw new Error("The line is busy with another call. Try again in a moment.")
+      // `busy` names a call on a contact that has the GPU to itself; the Road Desk line runs on OpenRouter end to end
+      // and takes any number of calls at once, so it is not refused here.
       const contact = book.contacts?.find((item) => item.id === CALLER)
       if (!contact) throw new Error(`The ${CALLER_WORDS} is not on the phone yet.`)
       if (contact.status !== "awake") setStatus(`The ${CALLER_WORDS} is asleep; waking it takes a little while…`)
@@ -274,7 +297,7 @@ export function CallScreen({ target, onClose, autoStart = false, onResult }: {
       if (!warm.ok || !warmed?.ok) { stream.getTracks().forEach((track) => track.stop()); throw new Error(warmed?.error ? `No call: ${warmed.error}.` : "Mira's brief could not be composed.") }
       setStatus("Connecting…")
       const response = await fetch(`${LINE}/calls`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ caller_id: CALLER, card_url: cardUrl }) })
-      if (!response.ok) { stream.getTracks().forEach((track) => track.stop()); throw new Error(response.status === 409 ? "The line is busy with another call." : `The line refused the call (${response.status}).`) }
+      if (!response.ok) { stream.getTracks().forEach((track) => track.stop()); throw new Error(`The line refused the call (${response.status}).`) }
       const placed = (await response.json()) as { call_id: string; ws: string; name?: string }
       const node = new AudioWorkletNode(ctx, "pcm-capture")
       ctx.createMediaStreamSource(stream).connect(node)
@@ -332,10 +355,29 @@ export function CallScreen({ target, onClose, autoStart = false, onResult }: {
   }, [])
 
   /** The party's reply, spoken into the live call: text from the persona, voice from the call service, frames to the line. */
-  const captionsRef = useRef<Caption[]>([])
-  captionsRef.current = captions
   const autoRef = useRef<(() => Promise<void>) | null>(null)
-  const settle = useRef(0)
+  const hangRef = useRef<(() => Promise<void>) | null>(null)
+  const fetchPersonaRef = useRef<(() => Promise<PersonaTurn>) | null>(null)
+  const disarm = () => { if (as.current.poller) { window.clearInterval(as.current.poller); as.current.poller = 0 } }
+  // Waits for Mira's audio to drain here, then the settle, then lets the party speak (or hangs up after its goodbye).
+  const arm = () => {
+    const state = as.current
+    if (!flags.current.auto || !flags.current.live || state.poller) return
+    state.armedAt = Date.now(); state.quietSince = 0
+    state.poller = window.setInterval(() => {
+      const current = call.current
+      if (!current || current.ended || !flags.current.auto) { disarm(); return }
+      const draining = current.nextT > current.ctx.currentTime + 0.05
+      // The opening's turn_end arrives before its first frame: wait for audio, or four seconds for a turn with none.
+      const heard = state.gotAudio || Date.now() - state.armedAt > 4000
+      if (draining || flags.current.speaking || !heard) { state.quietSince = 0; return }
+      if (!state.quietSince) { state.quietSince = Date.now(); return }
+      if (Date.now() - state.quietSince < (state.turnEnded ? SETTLE_MS : SETTLE_NO_TURN_END_MS)) return
+      disarm()
+      if (state.closing) { void hangRef.current?.(); return }
+      void autoRef.current?.()
+    }, 100)
+  }
   const speakAsParty = useCallback(async (text: string, mp3: string | null) => {
     const current = call.current
     if (!current || current.ended || !current.ws || current.ws.readyState !== 1) return
@@ -347,10 +389,21 @@ export function CallScreen({ target, onClose, autoStart = false, onResult }: {
     const offline = new OfflineAudioContext(1, Math.ceil(decoded.duration * 24000), 24000)
     const source = offline.createBufferSource(); source.buffer = decoded; source.connect(offline.destination); source.start()
     const mono = (await offline.startRendering()).getChannelData(0)
+    // The voice pauses 600 to 900 ms between sentences, longer than the line's end-of-turn silence (500 ms), so one
+    // reply arrived as two turns and the second cut Mira off mid-answer. Any quiet stretch is shortened to 250 ms.
+    const quietLevel = 0.01, quietMax = 24000 / 4
     const pcm = new Int16Array(mono.length)
-    for (let i = 0; i < mono.length; i++) { const v = Math.max(-1, Math.min(1, mono[i]!)); pcm[i] = v < 0 ? v * 0x8000 : v * 0x7fff }
-    // Heard on this side too, so the operator follows both voices.
-    const local = current.ctx.createBufferSource(); local.buffer = decoded; local.connect(current.ctx.destination); local.start()
+    let length = 0, quiet = 0
+    for (let i = 0; i < mono.length; i++) {
+      const v = Math.max(-1, Math.min(1, mono[i]!))
+      if (Math.abs(v) < quietLevel) { quiet += 1; if (quiet > quietMax) continue } else quiet = 0
+      pcm[length++] = v < 0 ? v * 0x8000 : v * 0x7fff
+    }
+    // Heard on this side too, so the operator follows both voices: the same samples the line hears.
+    const heard = current.ctx.createBuffer(1, Math.max(1, length), 24000)
+    const channel = heard.getChannelData(0)
+    for (let i = 0; i < length; i++) channel[i] = pcm[i]! / 32768
+    const local = current.ctx.createBufferSource(); local.buffer = heard; local.connect(current.ctx.destination); local.start()
     flags.current.speaking = true
     const samplesPerFrame = FRAME_BYTES / 2
     const began = performance.now()
@@ -358,12 +411,13 @@ export function CallScreen({ target, onClose, autoStart = false, onResult }: {
       let index = 0
       const tick = () => {
         const ws = call.current?.ws
-        if (!ws || ws.readyState !== 1 || call.current?.ended || index * samplesPerFrame >= pcm.length) { resolve(); return }
+        // Switching to the microphone mid-sentence stops the party's frames at once, before the mic's interleave with them.
+        if (!ws || ws.readyState !== 1 || call.current?.ended || !flags.current.auto || index * samplesPerFrame >= length) { try { local.stop() } catch { /* done */ } resolve(); return }
         // Send every frame whose time has come; silence padding on the last one.
         const due = Math.floor((performance.now() - began) / 20)
-        while (index <= due && index * samplesPerFrame < pcm.length) {
+        while (index <= due && index * samplesPerFrame < length) {
           const frame = new Int16Array(samplesPerFrame)
-          frame.set(pcm.subarray(index * samplesPerFrame, Math.min(pcm.length, (index + 1) * samplesPerFrame)))
+          frame.set(pcm.subarray(index * samplesPerFrame, Math.min(length, (index + 1) * samplesPerFrame)))
           ws.send(frame.buffer)
           index += 1
         }
@@ -373,22 +427,52 @@ export function CallScreen({ target, onClose, autoStart = false, onResult }: {
     })
     flags.current.speaking = false
   }, [])
+  /** The party's next line from the call service, for the call so far as the captions have it (Mira's sentences, the party's lines). */
+  const fetchPersona = useCallback(async (): Promise<PersonaTurn> => {
+    const history = lines.current.items.filter((item) => item.final).map((item) => ({ role: item.role === "model" ? "caller" as const : "callee" as const, text: item.text }))
+    const response = await fetch("/api/calls/persona-turn", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ref: target.orderRef, purpose: target.purpose, history }) })
+    const turn = await response.json() as { text?: string; audio?: string | null; end?: boolean; error?: string }
+    if (!response.ok || !turn.text) throw new Error(turn.error ?? "No reply from the persona.")
+    return { text: turn.text, audio: turn.audio ?? null, end: !!turn.end }
+  }, [target.orderRef, target.purpose])
+  fetchPersonaRef.current = fetchPersona
   const autoReply = useCallback(async () => {
-    if (autoBusy || flags.current.speaking || !flags.current.live) return
-    setAutoBusy(true)
+    const state = as.current
+    if (!flags.current.auto || !flags.current.live) return
+    // A trigger while a reply is under way is kept, not dropped: dropping it was a stall with nobody speaking.
+    if (state.busy || flags.current.speaking) { state.pending = true; return }
+    state.busy = true
     try {
-      const history = captionsRef.current.filter((item) => item.final).map((item) => ({ role: item.role === "model" ? "caller" as const : "callee" as const, text: item.text }))
-      const response = await fetch("/api/calls/persona-turn", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ref: target.orderRef, purpose: target.purpose, history }) })
-      const turn = await response.json() as { text?: string; audio?: string | null; error?: string }
-      if (!response.ok || !turn.text) throw new Error(turn.error ?? "No reply from the persona.")
-      if (!flags.current.auto) return
-      await speakAsParty(turn.text, turn.audio ?? null)
+      const turn = await (state.prefetch ?? fetchPersona())
+      state.prefetch = null
+      if (!flags.current.auto || !flags.current.live) return
+      state.turnEnded = false; state.gotAudio = false; state.retries = 0
+      await speakAsParty(turn.text, turn.audio)
+      if (turn.end) {
+        // The party has said goodbye: the call ends once Mira has answered it, or after a moment in any case.
+        state.closing = true
+        setStatus("Ending the call…")
+        state.closeTimer = window.setTimeout(() => { void hangRef.current?.() }, CLOSE_AFTER_MS)
+      }
     } catch (error) {
+      state.prefetch = null
       setStatus(error instanceof Error ? error.message : "The model could not answer for the other party.")
-    } finally { setAutoBusy(false) }
+      if (state.retries++ < 2) window.setTimeout(arm, 2000)
+    } finally {
+      state.busy = false
+      if (state.pending) { state.pending = false; arm() }
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoBusy, target.orderRef, target.purpose, speakAsParty])
+  }, [fetchPersona, speakAsParty])
   autoRef.current = autoReply
+  hangRef.current = hangUp
+  // Switched to the model mid-call while Mira waits for an answer: it answers now. Switched to the microphone: nothing queued speaks.
+  useEffect(() => {
+    if (!flags.current.live) return
+    if (auto) arm()
+    else { disarm(); as.current.prefetch = null; as.current.pending = false }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auto])
 
   const autoStarted = useRef(false)
   useEffect(() => { if (autoStart && !autoStarted.current) { autoStarted.current = true; void start() } }, [autoStart, start])
@@ -401,7 +485,7 @@ export function CallScreen({ target, onClose, autoStart = false, onResult }: {
       <b>{target.calleeName}</b>
       <span className="cs-purpose">{target.purposeLabel} · <span className="mono">{target.orderRef}</span></span>
       <span className="cs-status">{phase === "live" && startedAt ? clock((Date.now() - startedAt) / 1000) : status || (phase === "idle" ? "Ready to call" : "")}</span>
-      {phase === "live" && <span className={`cs-turn cs-turn-${turn}`} aria-live="polite"><i aria-hidden="true" />{turn === "speaking" ? `${target.calleeName.split(" ")[0]} is speaking` : turn === "thinking" ? "Thinking…" : "Listening"}</span>}
+      {phase === "live" && <span className={`cs-turn cs-turn-${turn}`} aria-live="polite"><i aria-hidden="true" />{turn === "speaking" ? `${target.calleeName.replace(/ from .*$/, "")} is speaking` : turn === "thinking" ? "Thinking…" : "Listening"}</span>}
       {phase === "live" && status && <span className="cs-note">{status}</span>}
     </header>
 

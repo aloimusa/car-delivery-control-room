@@ -41,18 +41,29 @@ function calleeSheet(d: Dossier, persona: Persona): string {
  * The other party's next line on a live call, from the same persona sheet a simulated call uses: Mira is on the phone
  * line, the party is played here. `history` is the call so far from the party's point of view (caller = Mira).
  */
-export async function personaTurn(d: Dossier, persona: Persona, purpose: CallBrief["purpose"], history: { role: "caller" | "callee"; text: string }[], opts: { apiKey?: string } = {}): Promise<{ text: string; costUsd: number }> {
+export async function personaTurn(d: Dossier, persona: Persona, purpose: CallBrief["purpose"], history: { role: "caller" | "callee"; text: string }[], opts: { apiKey?: string; brief?: CallBrief } = {}): Promise<{ text: string; costUsd: number; end: boolean }> {
   const apiKey = opts.apiKey ?? process.env.OPENROUTER_API_KEY; if (!apiKey) throw new Error("OPENROUTER_API_KEY is not set")
   const inbound = purpose === "DRIVER_INBOUND"
   const said = history.filter((h) => h.role === "callee").length
   // The scripted first words: the greeting on an outbound call, the reason for calling on an inbound one.
-  if (said === 0 && !inbound) return { text: persona.greeting, costUsd: 0 }
-  if (said === 0 && inbound && persona.inbound) return { text: persona.inbound.opening, costUsd: 0 }
+  if (said === 0 && !inbound) return { text: persona.greeting, costUsd: 0, end: false }
+  if (said === 0 && inbound && persona.inbound) return { text: persona.inbound.opening, costUsd: 0, end: false }
+  // Mira's closing line ends the call: the party says goodbye once and the screen hangs up, instead of the two models
+  // wishing each other goodbye until someone presses the button.
+  const lastCaller = [...history].reverse().find((h) => h.role === "caller")?.text ?? ""
+  const end = !!opts.brief && said > 0 && isClosing(lastCaller, opts.brief)
   const system = calleeSheet(d, persona) + (inbound && persona.inbound ? `\nYou called the support line because: ${persona.inbound.opening}` : "")
-  const messages = history.map((h) => ({ role: h.role === "caller" ? "user" as const : "assistant" as const, content: h.text }))
+    + (end ? "\nThey are ending the call now. Say goodbye in one short sentence; ask nothing and add no new facts." : "")
+  // Mira speaks sentence by sentence and each arrives as its own line; the model wants them as one turn.
+  const messages: { role: "user" | "assistant"; content: string }[] = []
+  for (const h of history) {
+    const role = h.role === "caller" ? "user" as const : "assistant" as const
+    const last = messages[messages.length - 1]
+    if (last && last.role === role) last.content = `${last.content} ${h.text}`.trim(); else messages.push({ role, content: h.text })
+  }
   if (!messages.length || messages[messages.length - 1]!.role === "assistant") messages.push({ role: "user", content: "(They are waiting for you to speak.)" })
   const r = await complete(apiKey, process.env.CALLEE_MODEL ?? "deepseek/deepseek-v4.1-flash", [{ role: "system", content: system }, ...messages], false, 0.7)
-  return { text: (r.text.split("\n")[0] ?? "").trim() || "Sorry, say that again?", costUsd: r.cost }
+  return { text: (r.text.split("\n")[0] ?? "").trim() || (end ? "Thanks, goodbye." : "Sorry, say that again?"), costUsd: r.cost, end }
 }
 
 /** The callee saying they are at the wheel right now; "pulled over" or "parked" in the same breath means they are not. */
@@ -171,10 +182,11 @@ export async function extractTurns(apiKey: string, model: string, brief: CallBri
 }
 
 /** A live phone-line call (VoiceChat): turns from the phone's transcript of record -> typed claims, same CallRecord shape. */
-export async function ingestTranscript(d: Dossier, purpose: CallBrief["purpose"], rawTurns: { speaker: string; text: string; startedAt?: string; endedAt?: string }[], opts: { startedAt?: string | undefined; endedAt?: string | undefined; engine?: string | undefined; lineCallId?: string | undefined; model?: string; apiKey?: string } = {}): Promise<{ record: CallRecord; costUsd: number }> {
+export async function ingestTranscript(d: Dossier, purpose: CallBrief["purpose"], rawTurns: { speaker: string; text: string; startedAt?: string; endedAt?: string }[], opts: { startedAt?: string | undefined; endedAt?: string | undefined; engine?: string | undefined; lineCallId?: string | undefined; model?: string; apiKey?: string; brief?: CallBrief | undefined } = {}): Promise<{ record: CallRecord; costUsd: number }> {
   const apiKey = opts.apiKey ?? process.env.OPENROUTER_API_KEY; if (!apiKey) throw new Error("OPENROUTER_API_KEY is not set")
   const model = opts.model ?? process.env.REASON_MODEL ?? "deepseek/deepseek-v4-pro"
-  const composed = await composeBrief(d, purpose, { model, apiKey }); let cost = composed.costUsd ?? 0
+  // The brief the line's model held, when the caller knows it; composing a fresh one would review the call against a card Mira never saw.
+  const composed = opts.brief ? { brief: opts.brief, costUsd: 0 } : await composeBrief(d, purpose, { model, apiKey }); let cost = composed.costUsd ?? 0
   const brief = composed.brief
   const inbound = purpose === "DRIVER_INBOUND"
   const startedAt = opts.startedAt ?? rawTurns[0]?.startedAt ?? new Date().toISOString()

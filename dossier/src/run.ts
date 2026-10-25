@@ -18,6 +18,7 @@ import { items } from "./brief"
 import { runLlmCall } from "./llm-call"
 import { callableNames, reason, ReasonOutput } from "./reason"
 import { reviewCall } from "./review"
+import { contextPrompt } from "./context"
 import { personaFor, Twist } from "./sim/persona-from-dossier"
 import { IsoDateTime, Text } from "./primitives"
 
@@ -159,7 +160,7 @@ export async function runDelivery(ds: Dataset, orderId: string, report: RunRepor
           const r = await runLlmCall(d, persona, item.purpose, asOf, modelOpts(opts))
           const record = { ...r.record, attempt: n, id: `${r.record.id}-${index}` }
           runCalls.push(record); opts.store?.(record); report.costUsd += r.costUsd
-          const review = record.direction === "OUTBOUND" ? reviewCall(record) : null
+          const review = record.direction === "OUTBOUND" ? reviewCall(record, contextPrompt(d, record.brief)) : null
           step.calls.push({ derivedId: item.id, purpose: item.purpose, callee: item.callee, callId: record.id, attempt: n, outcome: record.outcome, slots: record.slots.length, verdict: review?.verdict ?? null, costUsd: r.costUsd, proposedBy: proposed.some((p) => p.purpose === item.purpose) ? "BOTH" : "RULES" })
           if (review?.violations.length) report.failures.push({ step: index, what: `the caller said a forbidden line on ${record.id}: ${review.violations.map((v) => v.text).join(" | ").slice(0, 200)}` })
         } catch (e) { report.failures.push({ step: index, what: `${item.purpose} to ${item.callee.name} could not be placed: ${(e as Error).message.slice(0, 300)}` }) }

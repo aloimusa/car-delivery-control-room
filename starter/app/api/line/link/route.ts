@@ -15,6 +15,8 @@ type LinkBody = {
   started?: unknown; ended?: unknown
   /** The phone contact that placed the call; always roaddesk, the turn-based line. */
   caller?: unknown
+  /** The phone's recording of the call (…/line/api/calls/<id>/audio/mix.wav, same origin as the page), for the call service to cut per turn. */
+  audioUrl?: unknown
   transcript?: Line[]
 }
 
@@ -37,6 +39,9 @@ export async function POST(request: Request) {
   const startedMs = typeof body.started === "number" ? body.started * 1000 : Date.now() - (seconds ?? 0) * 1000
   const endedMs = typeof body.ended === "number" ? body.ended * 1000 : startedMs + (seconds ?? 0) * 1000
 
+  // Only the line's own recording of this call, over https or on this box.
+  const audioUrl = typeof body.audioUrl === "string" && /^(https:\/\/[^/]+|http:\/\/(127\.0\.0\.1|localhost)(:\d+)?)\/line\/api\/calls\/[a-z0-9-]+\/audio\/mix\.wav$/i.test(body.audioUrl) && body.audioUrl.includes(`/calls/${body.callId}/`) ? body.audioUrl : null
+
   let ingested: { call: CallRecord; review: CallReview | null } | null = null
   let ingestError: string | null = null
   if (INGESTIBLE.has(purpose) && transcript.length) {
@@ -44,7 +49,7 @@ export async function POST(request: Request) {
       const response = await fetch(`${BASE}/calls/ingest`, {
         method: "POST", headers: { "content-type": "application/json" }, cache: "no-store", signal: AbortSignal.timeout(90_000),
         body: JSON.stringify({
-          ref: order.reference, purpose, engine: "CHAINED_STT_LLM_TTS", lineCallId: body.callId,
+          ref: order.reference, purpose, engine: "CHAINED_STT_LLM_TTS", lineCallId: body.callId, audioUrl,
           startedAt: new Date(startedMs).toISOString(), endedAt: new Date(endedMs).toISOString(),
           // The phone's model is Mira; the user is whoever answered.
           turns: transcript.map((line) => ({ speaker: line.role === "model" ? "model" : "user", text: line.text, startedAt: new Date(startedMs + line.t * 1000).toISOString() })),

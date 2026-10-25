@@ -71,7 +71,12 @@ export function spokenClock(text: string): { minutes: number; words: string[] }[
   return out
 }
 
-export function reviewCall(c: CallRecord): CallReview {
+/**
+ * `held` is the rest of what the caller was given to read: on the line and in a simulated call that is the whole
+ * rendered dossier under the brief. A number that appears there was read, not invented, so it is not flagged; without
+ * it a slot the dossier plans but the brief does not mention fails the call for a time Mira was right to say.
+ */
+export function reviewCall(c: CallRecord, held = ""): CallReview {
   const asked = c.brief.ask as string[]
   const answered = asked.filter((a) => c.slots.some((s) => s.value.slot === a))
   const missing = asked.filter((a) => !answered.includes(a))
@@ -89,10 +94,10 @@ export function reviewCall(c: CallRecord): CallReview {
     const n = (seen.get(key) ?? 0) + 1; seen.set(key, n)
     if (n >= 2) violations.push({ kind: "REPEATED_LINE", turnSeq: t.seq, text: t.text })
   }
-  const card = [c.brief.opening, ...c.brief.mayState, c.brief.closing].join(" ").toLowerCase()
+  // A number the other party said is theirs to repeat: reading it back is the brief's own rule, not an invention, and
+  // "we open at 09:00" may come back as "nine", so the callee's lines get the same spoken forms as the card below.
+  const card = [c.brief.opening, ...c.brief.mayState, c.brief.closing, held, ...c.turns.filter((t) => t.speaker === "CALLEE").map((t) => t.text)].join(" ").toLowerCase()
   const cardNumbers = new Set(numbersIn(card))
-  // A number the other party said is theirs to repeat: reading it back is the brief's own rule, not an invention.
-  for (const t of c.turns) if (t.speaker === "CALLEE") for (const n of numbersIn(t.text.toLowerCase())) cardNumbers.add(n)
   // a card time like 09:00 or 15:30 may be spoken as "nine", "nine o'clock", "fifteen thirty", "half past three", "three in the afternoon"
   const hourWord = ["twelve", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty", "twenty-one", "twenty-two", "twenty-three"]
   // a card number like 22 (a date) may be spoken as "twenty-two", "twenty two" or "twenty-second"

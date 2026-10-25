@@ -28,6 +28,7 @@ import { ingestTranscript, runLlmCall, personaTurn } from "./llm-call"
 import { reviewCall } from "./review"
 import { cardText, contextPrompt } from "./context"
 import { renderCallAudio, ttsEnabled, synthesize, TTS } from "./tts"
+import { attachLineAudio, lineAudioUrlOk } from "./line-audio"
 import { pullLive } from "./livepull"
 import { derive, renderDerived } from "./derived"
 import { RunMode, newRunReport, planTimeline, runDelivery, type RunReport } from "./run"
@@ -52,6 +53,8 @@ async function dossierFor(ref: string, id: string, live: boolean) {
 }
 const reasonCache = new Map<string, ReasonRun>()
 const calls = new Map<string, CallRecord>()
+/** The review against everything the caller held, not the brief alone: the dossier under it is where a planned slot lives. */
+const review = (c: CallRecord) => { try { return reviewCall(c, contextPrompt(buildDossier(ds, c.orderId, { ...emptyLive(), calls: storedCalls(c.orderId).filter((x) => x.id !== c.id) }), c.brief)) } catch { return reviewCall(c) } }
 type Job = { id: string; personaId: string; mode: string; startedAt: string; status: "running" | "done" | "failed"; call?: CallRecord; note?: Record<string, unknown>; review?: unknown; error?: string }
 const jobs = new Map<string, Job>()
 /** A model-played call runs as a job the UI polls: it takes longer than the proxies in front of the UI wait. */
@@ -199,10 +202,13 @@ createServer(async (req, res) => {
       let persona; try { persona = personaFor(d, purpose.data, twist.data) } catch (e) { return json(res, 400, { error: (e as Error).message }) }
       const history = (input.history ?? []).filter((h) => (h.role === "caller" || h.role === "callee") && typeof h.text === "string").slice(-24)
       try {
-        const turn = await personaTurn(d, persona, purpose.data, history)
+        // The brief Mira holds (cached from /context when the call was placed; the rule-built one otherwise) tells the
+        // party when her closing line has been said. `end` asks the screen to hang up after this line.
+        const brief = briefCache.get(`${input.ref}/${purpose.data}`)?.brief ?? briefFor(d, purpose.data)
+        const turn = await personaTurn(d, persona, purpose.data, history, { brief })
         let audio: string | null = null
         if (process.env.OPENROUTER_API_KEY) { try { audio = (await synthesize(turn.text, TTS.voiceCallee)).toString("base64") } catch { audio = null } }
-        return json(res, 200, { text: turn.text, audio, personaId: persona.id, costUsd: turn.costUsd })
+        return json(res, 200, { text: turn.text, audio, end: turn.end, personaId: persona.id, costUsd: turn.costUsd })
       } catch (e) { return json(res, 502, { error: (e as Error).message.slice(0, 300) }) }
     }
     if (parts[0] === "calls" && req.method === "POST" && parts[1] === "sim") {
@@ -222,7 +228,7 @@ createServer(async (req, res) => {
           // The same voices as /calls/run: a call placed this way sounds like any other simulated one.
           const spoken = await renderCallAudio(r.record, audioDir); if (spoken.rendered) storeCall(spoken.call)
           job.call = spoken.call; job.note = { costUsd: r.costUsd + spoken.costUsd, briefBy: r.briefBy, twist: twist.data, ...(r.extractionError ? { extraction: r.extractionError } : {}), ...(ttsEnabled() ? { audio: { rendered: spoken.rendered, costUsd: spoken.costUsd, failed: spoken.failed } } : {}) }
-          job.review = reviewCall(spoken.call); job.status = "done"
+          job.review = review(spoken.call); job.status = "done"
         } catch (e) { job.status = "failed"; job.error = (e as Error).message.slice(0, 600) }
       })()
       return json(res, 202, { jobId: job.id, personaId: persona.id, purpose: purpose.data, twist: twist.data })
@@ -233,7 +239,7 @@ createServer(async (req, res) => {
       const d = buildDossier(ds, byRef.get(persona.orderRef)!)
       const at = input.at ?? new Date().toISOString()
       const mode = input.mode ?? (process.env.OPENROUTER_API_KEY ? "llm" : "scripted")
-      if (mode !== "llm") { const call = runSimulatedCall(briefFor(d, purposeFor(persona)), persona, at); storeCall(call); return json(res, 201, { ...call, review: reviewCall(call) }) }
+      if (mode !== "llm") { const call = runSimulatedCall(briefFor(d, purposeFor(persona)), persona, at); storeCall(call); return json(res, 201, { ...call, review: review(call) }) }
       // A model-driven run takes 30 to 90 s, longer than the proxies in front of the UI allow: run it as a job and let the UI poll.
       const job = newJob(persona.id, mode)
       void (async () => {
@@ -242,7 +248,7 @@ createServer(async (req, res) => {
           // Speech for every turn, after the record is stored: a failed render never loses the call.
           const spoken = await renderCallAudio(r.record, audioDir); if (spoken.rendered) storeCall(spoken.call)
           job.call = spoken.call; job.note = { costUsd: r.costUsd + spoken.costUsd, briefBy: r.briefBy, audio: ttsEnabled() ? { rendered: spoken.rendered, costUsd: spoken.costUsd, failed: spoken.failed } : null }
-          job.review = reviewCall(r.record); job.status = "done"
+          job.review = review(r.record); job.status = "done"
         }
         catch (e) { job.status = "failed"; job.error = (e as Error).message.slice(0, 400) }
       })()
@@ -251,15 +257,25 @@ createServer(async (req, res) => {
     }
     if (parts[0] === "calls" && req.method === "POST" && parts[1] === "ingest") {
       // A live phone-line call: the UI posts the transcript after hang-up; we extract typed claims, review it, store it.
-      const input = JSON.parse((await body(req)) || "{}") as { ref?: string; purpose?: string; engine?: string; startedAt?: string; endedAt?: string; lineCallId?: string; turns?: { speaker: string; text: string; startedAt?: string; endedAt?: string }[] }
+      const input = JSON.parse((await body(req)) || "{}") as { ref?: string; purpose?: string; engine?: string; startedAt?: string; endedAt?: string; lineCallId?: string; audioUrl?: string; turns?: { speaker: string; text: string; startedAt?: string; endedAt?: string }[] }
       const id = input.ref ? byRef.get(input.ref) : null; if (!id) return json(res, 400, { error: "ref must be an order reference" })
       const purpose = CallPurpose.safeParse(input.purpose); if (!purpose.success) return json(res, 400, { error: "unknown purpose" })
       if (!Array.isArray(input.turns) || !input.turns.length) return json(res, 400, { error: "turns required" })
       const d = buildDossier(ds, id)
       try {
-        const r = await ingestTranscript(d, purpose.data, input.turns, { startedAt: input.startedAt, endedAt: input.endedAt, engine: input.engine, lineCallId: input.lineCallId })
-        storeCall(r.record)
-        return json(res, 201, { ...r.record, review: reviewCall(r.record), costUsd: r.costUsd })
+        // The record keeps the brief Mira actually held (cached when the call was placed), not a fresh composition of it.
+        const held = briefCache.get(`${input.ref}/${purpose.data}`)?.brief
+        const r = await ingestTranscript(d, purpose.data, input.turns, { startedAt: input.startedAt, endedAt: input.endedAt, engine: input.engine, lineCallId: input.lineCallId, brief: held })
+        let record = r.record
+        storeCall(record)
+        // The line's own recording, per turn, when the browser says where it is; a failed fetch never loses the call.
+        let audio: { sliced: number; failed: string | null } | null = null
+        if (typeof input.audioUrl === "string" && input.lineCallId && lineAudioUrlOk(input.audioUrl, input.lineCallId)) {
+          const cut = await attachLineAudio(record, input.audioUrl, audioDir)
+          if (cut.sliced) { record = cut.call; storeCall(record) }
+          audio = { sliced: cut.sliced, failed: cut.failed }
+        }
+        return json(res, 201, { ...record, review: review(record), costUsd: r.costUsd, audio })
       } catch (e) { return json(res, 502, { error: (e as Error).message.slice(0, 400) }) }
     }
     if (parts[0] === "calls" && parts[1] === "jobs" && parts[2]) { const j = jobs.get(parts[2]); return j ? json(res, 200, { id: j.id, status: j.status, personaId: j.personaId, startedAt: j.startedAt, call: j.call ?? null, review: j.review ?? null, note: j.note ?? null, error: j.error ?? null }) : json(res, 404, { error: "no such job" }) }
@@ -289,13 +305,14 @@ createServer(async (req, res) => {
     }
     if (parts[0] === "calls" && parts[1] && parts[2] === "audio" && parts[3]) {
       // A simulated call's turn, spoken (rendered with SIM_TTS=1).
+      // (mp3 rendered with ElevenLabs; wav cut from the phone line's recording of a live call.)
       const c = calls.get(parts[1]); const turn = c?.turns.find((t) => String(t.seq) === parts[3])
-      if (!c || !turn?.audioKey || !/^[a-z0-9-]+\/\d+\.mp3$/i.test(turn.audioKey)) return json(res, 404, { error: "no audio for that turn" })
+      if (!c || !turn?.audioKey || !/^[a-z0-9-]+\/\d+\.(mp3|wav)$/i.test(turn.audioKey)) return json(res, 404, { error: "no audio for that turn" })
       const file = new URL(turn.audioKey, audioDir)
       if (!existsSync(file)) return json(res, 404, { error: "audio file missing" })
-      res.writeHead(200, { "content-type": "audio/mpeg", "cache-control": "public, max-age=86400" }); return res.end(readFileSync(file))
+      res.writeHead(200, { "content-type": turn.audioKey.endsWith(".wav") ? "audio/wav" : "audio/mpeg", "cache-control": "public, max-age=86400" }); return res.end(readFileSync(file))
     }
-    if (parts[0] === "calls" && parts[1] && parts[2] === "review") { const c = calls.get(parts[1]); return c ? json(res, 200, reviewCall(c)) : json(res, 404, { error: "no such call" }) }
+    if (parts[0] === "calls" && parts[1] && parts[2] === "review") { const c = calls.get(parts[1]); return c ? json(res, 200, review(c)) : json(res, 404, { error: "no such call" }) }
     if (parts[0] === "calls" && parts[1]) { const c = calls.get(parts[1]); return c ? json(res, 200, c) : json(res, 404, { error: "no such call" }) }
     if (parts[0] === "calls") {
       const ref = url.searchParams.get("ref"); const id = ref ? byRef.get(ref) : null
