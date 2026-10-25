@@ -1621,3 +1621,43 @@ Got:
 Checked: 137 unit tests (a new one for the call summary), both typechecks, the build; against the running app on
 Roope's key: the autopilot's call to Rafael on CD-420806 end to end (the lines on the order, no case opened since
 nothing was flagged), scenario F through its clock jumps, and the demo screen. Not run: the full role harness.
+
+## 2026-10-25 ~10:30–12:00 UTC · RoopeS + Claude Code (cloud) · the polish pass, in parallel, and the lock
+
+Asked: step back, plan the large parts and dispatch them to workers on the box; polish passes, documentation, the
+business case refreshed with a slide; the "400 orders?" crowd on real routes; several calls at once; then merge it
+all, push to `main` and serve, and lock.
+
+Got, five workers on the box (each in its own worktree, patches pulled in by the cloud session since the box cannot
+push; everything landed on `polish` and was deployed by the autodeploy as it went):
+- **Sims:** pass6 (compliant, dossier-first context) 15 of 17 clean; the seven faults from the morning's full
+  delivery run fixed (unique call ids, spoken clock forms, a driving driver gets one question, local times for the
+  reasoner, a run's handover reaches the dossier, the closing is always spoken); played desks answer from the
+  records (no signed release when the document is missing, a seller's hold said out loud, no boarding lane a
+  thousand kilometres from the port), two new night scenarios for those, the sandbox reset so passes stop
+  contaminating each other.
+- **Calls:** the two models no longer say goodbye to each other until someone hangs up; the party answers at the
+  line's turn-end marker; one persona reply is one line turn; the review reads the dossier under the brief so
+  "ten o'clock" is no longer a false FAIL; every stored live call carries per-turn audio cut from the line's
+  recording; the phone server's single-call gate is gone (two calls ran at once with distinct ids).
+- **E2E:** a pass through the public UI found twelve defects; fixed: suggested replies drafted from the order the
+  thread is filed on, the call service's calls listed on the order page, the last turn no longer dropped on
+  hang-up, an inbound call recorded as the driver's call, the agent may not assert what nobody said (a gate check
+  with tests), codes shown to people read as words, one clock per screen with ages from the simulated clock, a watch
+  line when a call contradicts the position.
+- **UI:** the map foot is one row so the dossier never covers the buttons, the crowd banner sits under the role
+  bar, board tray lines end in an ellipsis, the inbox opens at the head of the thread and its composer fits at 1180,
+  an order reference never breaks across lines.
+- **Docs:** ARCHITECTURE, SETUP, DEMO (labels quoted from the rendered pages), OPERATIONS, DATA-MODEL, TESTING, a
+  short README; HOW-AGENTS-RUN corrected; the test suite 137 of 137 on a fresh database.
+- **Own:** the crowd's moving cars sit on the dataset's own routes (reversed and chained too), the business case
+  measured over 241 agent runs with the procedure as built (slides at the artifact link in SUBMISSION-DRAFTS.md),
+  the code's model defaults are the measured DeepSeek ones so a key-only setup never lands on Opus.
+
+Along the way the project's OpenRouter key hit its $20 limit and took the live site down for about forty minutes;
+the live stack now runs on a second key and the sandbox on a third, so test spend cannot take the demo down again.
+
+Checked at the lock (head of `polish`, deployed): both typechecks, the new unit tests, the map with the crowd on,
+an order page with its Calls section, the queue, the inbox, the board and the dealer desk on the public URL.
+Not re-run after the last merge: a live both-sides call with the new screen (the key died under the worker that
+was to run it; the fixes are verified against the call service and in unit tests, not on the line).
