@@ -162,7 +162,7 @@ function ThreadRow({ thread, view, onChange }: { thread: ThreadView; view: Recor
   return <article className={`row thread${thread.status === "OPEN" ? "" : " closed"}${waiting ? " waiting" : ""}${open ? " open" : ""}`} id={`thread-${thread.id}`}>
     <div className="row-main">
       <button type="button" className="thread-head" onClick={() => setOpen((value) => !value)} aria-expanded={open}>
-        <div className="row-title">{thread.categoryLabel}{thread.counterparty ? <> with {thread.counterparty.name}</> : null} {waiting ? <Chip tone="danger" dot>Waiting on us</Chip> : <Chip tone={thread.tone}>{thread.statusLabel}</Chip>}</div>
+        <div className="row-title">{thread.categoryLabel}{thread.counterparty ? <> with {thread.counterparty.name}</> : null} {waiting ? <Chip tone="danger" dot>Waiting on our reply</Chip> : <Chip tone={thread.tone}>{thread.statusLabel}</Chip>}</div>
         <div className="row-sub">
           {thread.channelLabel} · {count} {count === 1 ? "message" : "messages"}
           {thread.waitingOn && ` · waiting on ${thread.waitingOn}`}{thread.owner && ` · ${thread.owner}`}

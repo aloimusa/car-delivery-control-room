@@ -15,7 +15,7 @@ const POLL_MS = 4000
 
 type Filter = "unanswered" | "all" | "unlinked" | "closed"
 const FILTERS: { id: Filter; label: string }[] = [
-  { id: "unanswered", label: "Waiting on us" }, { id: "all", label: "All open" }, { id: "unlinked", label: "No order yet" }, { id: "closed", label: "Closed" },
+  { id: "unanswered", label: "Waiting on our reply" }, { id: "all", label: "All open" }, { id: "unlinked", label: "No order yet" }, { id: "closed", label: "Closed" },
 ]
 
 function matches(thread: InboxThreadView, filter: Filter): boolean {
@@ -83,7 +83,7 @@ export default function InboxPage() {
     <section className="mail-list" aria-label="Conversations">
       <header className="mail-list-head">
         <h1>Inbox</h1>
-        <p>{view ? `${counts.unanswered} waiting on us · ${counts.all} open` : "Loading"}</p>
+        <p>{view ? `${counts.unanswered} waiting on our reply · ${counts.all} open` : "Loading"}</p>
         <div className="mail-filters" role="tablist" aria-label="Which conversations">
           {FILTERS.map((f) => <button key={f.id} type="button" role="tab" aria-selected={filter === f.id} onClick={() => setFilter(f.id)}>{f.label}<span className="num">{counts[f.id] ?? 0}</span></button>)}
         </div>
@@ -102,7 +102,7 @@ export default function InboxPage() {
             <span className="mail-row-tags">
               {item.linked[0] ? <span className="mail-tag mono">{item.linked[0].reference}</span> : <Chip tone={item.linkTone}>{item.linkStateLabel}</Chip>}
               <span className="mail-tag">{item.channelLabel}</span>
-              {item.unanswered && <Chip tone="danger">Waiting on us</Chip>}
+              {item.unanswered && <Chip tone="danger">Waiting on our reply</Chip>}
               {item.status !== "OPEN" && <Chip tone="neutral">{item.statusLabel}</Chip>}
             </span>
             {lastMessage && <span className="mail-row-preview">{lastMessage.author.kind === "operator" || lastMessage.author.kind === "agent" ? "Us: " : ""}{lastMessage.body}</span>}
@@ -140,7 +140,7 @@ function Thread({ thread, onBack, onChange }: { thread: InboxThreadView; onBack:
     <header className="mail-head">
       <h2>{thread.categoryLabel}{thread.counterparty ? <> with {thread.counterparty.name}</> : thread.channel === "case_workspace" ? <> (internal workspace)</> : null}</h2>
       <div className="chips">
-        {thread.unanswered ? <Chip tone="danger" dot>Waiting on us</Chip> : thread.status === "OPEN" ? <Chip tone="accent">Open</Chip> : <Chip tone="neutral">{thread.statusLabel}</Chip>}
+        {thread.unanswered ? <Chip tone="danger" dot>Waiting on our reply</Chip> : thread.status === "OPEN" ? <Chip tone="accent">Open</Chip> : <Chip tone="neutral">{thread.statusLabel}</Chip>}
         {order ? <Chip tone="neutral">Order {order.reference}</Chip> : <Chip tone={thread.linkTone}>{thread.linkStateLabel}</Chip>}
         <Chip tone="neutral">{thread.channelLabel}</Chip>
         {thread.waitingOn && <Chip tone="warn">Waiting on {thread.waitingOn}</Chip>}
