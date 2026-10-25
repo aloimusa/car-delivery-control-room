@@ -1,16 +1,22 @@
 # How the agents run, and which model does what
 
-An audit of the system as deployed on the box on 25 October (branch `polish`). Two things people assume that are not
-quite true: not everything computes on a whole dossier, and not everything is DeepSeek v4 pro. There are two separate
-agent designs in this repo, plus a phone line that borrows from one of them.
+An audit of the system as deployed on the box on 25 October (branch `polish`), brought up to date with the commits
+that followed it the same day: the single context (`f424cbb`), the two-DeepSeek split (`bdb7152`) and the phone
+line's speech-in through OpenRouter (`63a4142`, `02b03b5`). Two things people assume that are not quite true: not
+everything computes on a whole dossier, and not everything is DeepSeek v4 pro. There are two separate agent designs in
+this repo, plus a phone line that borrows from one of them. `docs/ARCHITECTURE.md` is the shorter, current map;
+this page keeps the reasoning.
 
 ## The two designs
 
 ### 1. The case agent in the app (`starter/lib/agent`)
 
-A classic tool-using loop. It never sees a dossier. It sees what its tools return.
+A classic tool-using loop. As first audited it never saw a dossier, only what its tools returned; since `f424cbb`
+every turn starts with the dossier service's rendered dossier (see "The single context, implemented" at the end) and
+the tools are kept for acting and for what the dossier cannot carry.
 
 - **Model:** `AGENT_MODEL`, on the box `deepseek/deepseek-v4-pro`, called through OpenRouter with the Anthropic SDK (`client.ts`).
+  The code's default when the variable is unset is `anthropic/claude-opus-5.5`; `starter/.env.example` ships the line commented out.
   Effort `low` for a driver or site turn, `medium` for an operator turn (`AGENT_EFFORT_FAST/DEEP`). Up to 12 model calls per
   turn, 16 000 output tokens, two attempts on a cut-off answer (`config.ts`, `loop.ts`).
 - **Context per turn:** the system prompt (role, how to work, the whole rulebook from `starter/rulebook/*.md`, the
@@ -18,7 +24,8 @@ A classic tool-using loop. It never sees a dossier. It sees what its tools retur
   conversation. Everything else it has to fetch with tools: `get_order_context`, `get_timeline`, `get_telemetry`,
   `get_active_codes`, `lookup_trouble_code`, `lookup_warning_light`, `read_playbook`, `find_nearby_help`,
   `search_travel_options`, `analyse_photo`; and act with tools: `safety_instruction` (fixed templates only),
-  `message_driver`, `ask_site`, `request_photo`, `update_case`, `wait_for`, `hand_over`, `propose_action`, `close_case`.
+  `message_driver`, `ask_site`, `request_photo`, `update_case`, `wait_for`, `hand_over`, `propose_action`, `escalate`,
+  `close_case` (`tools.ts`, `TOOL_AUDIENCES` in `gate.ts`).
   The approval gate (`gate.ts`) sits between every tool call and the database.
 - **State:** Postgres (`cr_cases`, `cr_events`, `cr_proposals`, `cr_telemetry`). A turn is one agent run on one case under
   a per-case lock. Follow-up turns (prepare a decision after `hand_over`, continue after an operator's decision) are
@@ -27,16 +34,17 @@ A classic tool-using loop. It never sees a dossier. It sees what its tools retur
   instruction or question. **Timers (`tick.ts`):** every poll of the control room compares open cases with the simulated
   clock: a reminder when a driver is silent, a card when they stay silent, a watchdog for a run that died.
 - **Side calls, not DeepSeek:**
-  - the drivability screen (`drivability.ts`): a pattern layer, then a one-word classifier on `DRIVABILITY_MODEL`, which is
-    **unset on the box, so the default `anthropic/claude-haiku-5.5`** runs on every message to a driver, and twice when the
-    message carries a stop instruction;
-  - photo descriptions (`vision.ts`): `VISION_MODEL`, also unset, so **`anthropic/claude-haiku-5.5`** (DeepSeek takes no images on
-    OpenRouter);
+  - the drivability screen (`drivability.ts`): a pattern layer, then a one-word classifier on `DRIVABILITY_MODEL`,
+    **`anthropic/claude-haiku-5.5`** (the code's default, and now also the value in `.env.example` and on the box), on
+    every message to a driver, and twice when the message carries a stop instruction;
+  - photo descriptions (`vision.ts`): `VISION_MODEL`, **`anthropic/claude-haiku-5.5`** the same way (DeepSeek takes no
+    images on OpenRouter);
   - the simulated driver (`lib/sim/sim-driver.ts`): answers the agent in the driver channel from a fact sheet, on
-    `SIM_DRIVER_MODEL`, on the box `deepseek/deepseek-v4-pro`; on in the box's env (`SIM_DRIVER_ENABLED=true`).
+    `SIM_DRIVER_MODEL`, `deepseek/deepseek-v4.1-flash` in `.env.example` and on the box since `bdb7152` (the code's
+    default when unset is `anthropic/claude-haiku-5.5`); on in the box's env (`SIM_DRIVER_ENABLED=true`).
 
-So "one agent, one context" does not describe this part: a driver turn is the loop model plus a Haiku classifier per
-outbound message, plus Haiku once per photo.
+So "one agent, one context" does not fully describe this part even now: a driver turn is the loop model with the
+dossier, plus a Haiku classifier per outbound message, plus Haiku once per photo.
 
 ### 2. The dossier service (`dossier/src`)
 
@@ -54,7 +62,7 @@ output appended back. No tools, no loop.
   when the derived layer changed.
 - **Call briefs (`brief.ts`, `composeBrief` in `reason.ts`):** the rules build a draft brief (what Mira may state, what to
   ask, the closing line). The model rewrites it into speakable lines: since today on **`BRIEF_MODEL`, default
-  `deepseek/deepseek-v4-flash`, hidden reasoning off** (3 s; it was the pro model with reasoning, 5 to 10 s). Cached per
+  `deepseek/deepseek-v4.1-flash`, hidden reasoning off** (3 s; it was the pro model with reasoning, 5 to 10 s). Cached per
   order and purpose until the service restarts.
 - **The line's prompt (`/context/<ref>/<purpose>`, `context.ts`):** the brief **and the whole rendered dossier with its
   stored calls**. This is what Mira holds for the entire call, whether on the phone line or in a simulated call. The
@@ -63,15 +71,19 @@ output appended back. No tools, no loop.
   on `CALLEE_MODEL`, default **`deepseek/deepseek-v4.1-flash`**, from a persona built from the dossier under a twist;
   after the call, a typed extraction of the transcript into claims on the pro model. Audio per turn with
   **`elevenlabs/eleven-v4-turbo` through OpenRouter** (`SIM_TTS=1`, set on the box today).
-- **Suggested replies (`suggest.ts`):** **`SUGGEST_MODEL`, default `deepseek/deepseek-v4-flash`**, with the thread and the
+- **Suggested replies (`suggest.ts`):** **`SUGGEST_MODEL`, default `deepseek/deepseek-v4.1-flash`**, with the thread and the
   rendered dossier; returns up to three drafts with their basis records and a desk note.
 - **Review (`review.ts`):** deterministic, no model.
 
 ### 3. The phone line (`duplex/phone/callers/roaddesk.py` on the box, outside this repo)
 
-One contact, `roaddesk`: local **Whisper `small.en`** for speech in, **`deepseek/deepseek-v4-pro`** through OpenRouter for the
+One contact, `roaddesk`: speech in, **`deepseek/deepseek-v4-pro`** through OpenRouter for the
 turn (streaming, hidden reasoning off), with the system prompt fetched from the dossier service's `/context` (brief +
-whole dossier), and **`elevenlabs/eleven-v4-turbo`** through OpenRouter for speech out. After hang-up the app links the
+whole dossier), and **`elevenlabs/eleven-v4-turbo`** through OpenRouter for speech out. Speech in was a local
+**Whisper `small.en`** on the box's GPU when this was audited; `tools/phone-line/asr_or.py` (`02b03b5`) is a drop-in
+decoder that sends each utterance to OpenRouter's transcription endpoint instead (`mistralai/voxtral-small-transcribe-3-0`,
+fallback `openai/gpt-transcribe`), so the line needs only the OpenRouter key. Which decoder the phone server runs is
+set in its own config, outside this repository. After hang-up the app links the
 transcript to the order and the dossier service extracts claims from it (`/calls/ingest`). The older VoiceChat and
 PersonaPlex contacts exist on the phone server but nothing in the app offers them, and their units are inactive.
 
@@ -88,22 +100,22 @@ PersonaPlex contacts exist on the phone server but nothing in the app offers the
 
 | Where | Model on the box | Sees |
 |---|---|---|
-| Case agent turn | DeepSeek v4 pro, low/medium effort | case notes + tool results |
-| Drivability classifier | **Claude Haiku 5.5** (unset env, default) | one message + a trusted safety context |
-| Photo description | **Claude Haiku 5.5** (unset env, default) | one photo |
-| Simulated driver (demo) | DeepSeek v4 pro | a fact sheet + the agent's question |
+| Case agent turn | DeepSeek v4 pro, low/medium effort | the rendered dossier (since `f424cbb`) + case notes + tool results |
+| Drivability classifier | **Claude Haiku 5.5** (set in `.env.example`; also the default) | one message + a trusted safety context |
+| Photo description | **Claude Haiku 5.5** (set in `.env.example`; also the default) | one photo |
+| Simulated driver (demo) | DeepSeek v4.1 flash | a fact sheet + the agent's question |
 | Dossier reasoning step | DeepSeek v4 pro | whole dossier + derived layer |
-| Call brief rewrite | DeepSeek v4 flash, no reasoning | the rule-built draft + the dossier |
+| Call brief rewrite | DeepSeek v4.1 flash, no reasoning | the rule-built draft + the dossier |
 | Mira on the line / in a simulated call | DeepSeek v4 pro | brief + whole dossier |
 | The other party in a simulated call | DeepSeek v4.1 flash | a persona sheet |
 | Transcript extraction | DeepSeek v4 pro | the transcript |
-| Suggested replies | DeepSeek v4 flash | thread + whole dossier |
-| Speech in / out | Whisper small.en (local) / ElevenLabs v4 turbo | audio |
+| Suggested replies | DeepSeek v4.1 flash | thread + whole dossier |
+| Speech in / out | Whisper small.en (local) or OpenRouter transcription (`tools/phone-line`) / ElevenLabs v4 turbo | audio |
 
-Two decisions to make: whether the two Haiku side calls should move to DeepSeek flash (set `DRIVABILITY_MODEL` and
-`VISION_MODEL`; the classifier is a one-word answer, the vision call needs a model that takes images, which DeepSeek on
-OpenRouter does not), and whether the case agent should read the dossier service's rendered dossier as its first tool
-result instead of assembling the same facts from eight tools.
+Two decisions were open when this was written; both are settled. The Haiku side calls stay (the classifier is a
+one-word answer and the vision call needs a model that takes images, which DeepSeek on OpenRouter does not), and the
+model variables are now set explicitly in `.env.example` rather than left to the code's defaults. The case agent reads
+the dossier service's rendered dossier as the first block of its message (`f424cbb`), see the last section.
 
 ## Review: is what each model sees the right thing?
 
@@ -123,10 +135,11 @@ message the driver, ask the site, propose, wait, hand over, close. Reading shoul
 
 **Three specific gaps.**
 
-1. *Two sources of truth for the same order.* The case agent reads Postgres through its tools; the dossier service
+1. *Two sources of truth for the same order.* The case agent read Postgres through its tools; the dossier service
    reads the dataset plus a live pull of that Postgres. Each turn of the case agent should start with the rendered
-   dossier as its first (and usually only) read, fetched from the dossier service, with the eight read tools kept
-   only for things the dossier cannot carry (a nearby-help search, a travel quote, a photo).
+   dossier as its first (and usually only) read, fetched from the dossier service, with the read tools kept
+   only for things the dossier cannot carry (a nearby-help search, a travel quote, a photo). **Done in `f424cbb`**;
+   the last section says how.
 2. *The brief as a separate model step.* It exists because the voice model on the line was once a small model that
    needed a short card. The line now runs the pro model with the whole dossier, so the brief only adds the
    "may state / must not / closing" frame. The rules already build that frame deterministically; the flash rewrite
@@ -166,9 +179,10 @@ case field (it is marked as the agent's, but it is still prose a later model wil
 
 ## The single context, implemented
 
-Since commit `polish` today, every case-agent turn starts with the dossier service's rendered dossier (static records,
-then the live layer, then the clock, then the derived items) as the first block of its message, cache-marked, with the
-case notes after it. The four record readers (`get_order_context`, `get_timeline`, `get_telemetry`, `get_active_codes`)
-are no longer offered while a dossier is present; the gate still allows them, so a one-line change brings them back.
-When the dossier service does not answer within six seconds, the turn runs as before. The rendered dossier now says
+Since `f424cbb` on `polish`, every case-agent turn starts with the dossier service's rendered dossier (static records,
+then the live layer, then the clock, then the derived items; `GET /dossier/<ref>/text?live=1`,
+`starter/lib/agent/dossier-text.ts`) as the first block of its message, cache-marked, with the case notes after it
+(`loop.ts`). The four record readers (`get_order_context`, `get_timeline`, `get_telemetry`, `get_active_codes`)
+are no longer offered while a dossier is present (`DOSSIER_COVERS` in `tools.ts`); the gate still allows them, so a
+one-line change brings them back. When the dossier service does not answer within six seconds, the turn runs as before. The rendered dossier now says
 its clock at the end instead of in its first line, so the long static prefix stays cacheable between turns.
