@@ -93,7 +93,10 @@ export function closingKind(line: string, brief: CallBrief): "closing" | "emerge
   if (plain.includes(head)) return "closing"
   if (plain.includes(emergency)) return "emergency"
   if (said.includes("glad i could help")) return "routine"
-  if (/\b(an operator( at \w+)? (has|will|is (told|informed))|we('ll| will) (call|message) you)\b/i.test(line) || /\bgoodbye\b/i.test(line)) return "handoff"
+  // A hand-off is final: "an operator will call you back", "we'll message you", goodbye. "An operator will check the
+  // timing" is a promise inside the call, and a line that still asks something is never the end of it.
+  if (/\?\s*$/.test(line.trim())) return null
+  if (/\b(an operator( at \w+)? (has (this|it|your case)( now)?|is (told|informed)( now)?|will (call|ring|phone|contact|get back to|come back to|be in touch with) you)|we('ll| will) (call|ring|message|text) you)\b/i.test(line) || /\bgoodbye\b/i.test(line)) return "handoff"
   return null
 }
 
