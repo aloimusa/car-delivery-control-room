@@ -78,7 +78,9 @@ export function reviewCall(c: CallRecord): CallReview {
   for (const t of caller) for (const n of numbersIn(t.text)) {
     if (cardNumbers.has(n)) continue
     if (/^(one|two|three|four|five|six|seven|eight|nine|ten)$/.test(n) && !/\d/.test(n) && !/(o'clock|in the (morning|afternoon|evening)|october|november)/i.test(t.text)) continue   // "one or two things": not a fact
-    if (/^(fifteen minutes|half)$/.test(n)) continue
+    // spoken clock forms ("quarter to four", "half past", "ten to") are a time, not an invented number
+    if (/^(fifteen minutes|half|quarter)$/.test(n)) continue
+    if (/\b(quarter|half|\w+ minutes?) (past|to) \w+\b/i.test(t.text) && !/\d/.test(n)) continue
     unsupportedNumbers.push({ turnSeq: t.seq, value: n, text: t.text })
   }
   const closingKey = c.brief.closing.slice(0, 24).toLowerCase()

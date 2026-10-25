@@ -93,7 +93,8 @@ export async function runLlmCall(d: Dossier, persona: Persona, purpose: CallBrie
   const outcome: CallRecord["outcome"] = inbound ? (extracted?.escalate ? "ESCALATED" : "COMPLETED") : missing.length ? "PARTIAL" : "COMPLETED"
   const toolCalls: CallRecord["toolCalls"] = extracted?.escalate && inbound ? [{ turnSeq: Math.max(0, seq - 2), name: "ESCALATE_TO_OPERATOR", argument: `${extracted.triage?.urgency ?? ""} ${extracted.triage?.situation ?? ""}: ${slots.map((s) => `${s.value.slot}=${JSON.stringify(s.value.value)}`).join(", ")}` }] : []
   const record = CallRecord.parse({
-    id: `call-llm-${persona.id}-${Date.parse(startedAt).toString(36)}`, orderId: brief.orderId, brief, direction: inbound ? "INBOUND" : "OUTBOUND", attempt: 1,
+    // The id carries the wall clock too: two runs placing the same call at the same simulated minute keep both records.
+    id: `call-llm-${persona.id}-${Date.parse(startedAt).toString(36)}-${Date.now().toString(36).slice(-4)}`, orderId: brief.orderId, brief, direction: inbound ? "INBOUND" : "OUTBOUND", attempt: 1,
     startedAt, endedAt: new Date(clock).toISOString(), outcome, engine: "SIMULATED_LLM", triage: extracted?.triage ?? null, toolCalls, turns, slots, toneReview: null,
     retryAfter: outcome === "PARTIAL" ? new Date(clock + 2 * 3600e3).toISOString() : null,
   })

@@ -47,6 +47,7 @@ export function contextPrompt(d: Dossier, brief: CallBrief, opts: { maxHistory?:
     "What you are doing on this call, and the only facts you may state out loud:", ...brief.mayState.map((l) => `- ${l}`),
     (brief.purpose === "DRIVER_INBOUND" ? "First make sure they are safe and find out whether this is urgent. Ask that once: when they say they are safe, or that this is not about safety, believe them, do not come back to it, and give your attention to what they called about. Then find out, one question at a time, confirming what you already know instead of asking it: " : "Find out, one question at a time, confirming what you already know instead of asking it: ") + brief.ask.map((k) => ASK_WORDS[k]).join("; ") + ".",
     "Be useful about their concern: say what you can do about it now (an operator is told, a check is made, a message is passed on) rather than only collecting answers.",
+    ...(brief.callee.kind === "DRIVER" ? ["If they say they are driving, do not keep them talking: ask at most one short question, or ask them to call back or write in the app once they have stopped, then close. Never ask a driving driver to look anything up."] : []),
     "Hard rules: " + brief.mustNot.map((k) => MUST_NOT_WORDS[k]).join(" ") + " The customer is anyone who pays Bahn; never give out their details and never promise dates or costs: an operator confirms those.",
     EMERGENCY_LINE,
     ...(brief.mustNot.includes("CLEARANCE_TO_DRIVE") ? [CLEARANCE_LINE] : []),

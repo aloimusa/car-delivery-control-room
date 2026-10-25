@@ -21,9 +21,14 @@ export function spellRef(ref: string): string {
 export function sayTime(iso: string, zone: string): string {
   const t = new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: zone, hour12: false })
   const [h, m] = t.split(":").map(Number) as [number, number]
+  // Said as people say it: "two minutes past ten", "quarter to four", "half past three"; never "ten 2".
   const words = ["twelve", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven"]
-  const half = m === 0 ? "" : m === 30 ? " thirty" : ` ${m}`
-  return `${t}, that is ${words[h % 12]}${half} in the ${h < 12 ? "morning" : h < 17 ? "afternoon" : "evening"}`
+  const small = ["", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty", "twenty-one", "twenty-two", "twenty-three", "twenty-four", "twenty-five", "twenty-six", "twenty-seven", "twenty-eight", "twenty-nine"]
+  const hour = words[h % 12], next = words[(h + 1) % 12]
+  const part = h < 12 ? "morning" : h < 17 ? "afternoon" : "evening"
+  const spoken = m === 0 ? `${hour} o'clock` : m === 15 ? `quarter past ${hour}` : m === 30 ? `half past ${hour}` : m === 45 ? `quarter to ${next}`
+    : m < 30 ? `${small[m]} ${m === 1 ? "minute" : "minutes"} past ${hour}` : `${small[60 - m]} ${60 - m === 1 ? "minute" : "minutes"} to ${next}`
+  return `${t}, that is ${spoken} in the ${part}`
 }
 export function sayDate(iso: string, zone: string): string {
   return new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "long", timeZone: zone })
