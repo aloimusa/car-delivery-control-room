@@ -109,8 +109,9 @@ export function buildDossier(ds: Dataset, orderId: string, live: Live = emptyLiv
   const ofPicked = (c: CollectionName) => [...picked.values()].filter((p) => p.c === c).map((p) => p.r)
   const ids = (c: CollectionName, k: string) => ofPicked(c).flatMap((r) => [str(field(r, k)), ...strs(field(r, k))]).filter((x): x is string => !!x)
 
-  // 1. DIRECT: records that name the order.
-  add("orders", order, "DIRECT")
+  // 1. DIRECT: records that name the order. The order's status is what the world says now (a step the driver reported,
+  // or a run's simulated step), not only the snapshot's: the reasoning model reads this line, not the phase basis.
+  add("orders", overlay.status && overlay.status !== order.status ? { ...order, status: overlay.status } : order, "DIRECT")
   for (const c of Object.keys(ds.rows) as CollectionName[]) {
     for (const r of ds.rows[c] as object[]) if (field(r, "order_id") === orderId) add(c, r, "DIRECT")
   }

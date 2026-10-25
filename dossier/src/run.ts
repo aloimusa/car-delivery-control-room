@@ -12,7 +12,7 @@ import { z } from "zod"
 import type { Dataset, Overlay } from "./build"
 import { buildDossier } from "./build"
 import { derive, diffDerived, DerivedDiff, DerivedItem } from "./derived"
-import { CallPurpose, CallRecord, Callee, emptyLive, type Live } from "./live"
+import { AppEvent, CallPurpose, CallRecord, Callee, emptyLive, type Live } from "./live"
 import { pullLive } from "./livepull"
 import { items } from "./brief"
 import { runLlmCall } from "./llm-call"
@@ -55,7 +55,12 @@ export const RunReport = z.object({
 export type RunReport = z.infer<typeof RunReport>
 
 const H = 3600e3, MIN = 60e3
-type Instant = { label: string; at: number; overlay: Overlay; phone?: Live["phone"] | undefined }
+type Instant = { label: string; at: number; overlay: Overlay; phone?: Live["phone"] | undefined; events?: AppEvent[] | undefined }
+
+/** A step the run simulates, as the driver app would have recorded it: the reasoning model reads the timeline, not the overlay. */
+function simulatedMilestone(orderId: string, at: number, milestone: NonNullable<AppEvent["milestone"]>, text: string): AppEvent {
+  return { kind: "APP_EVENT", id: `evt-sim-${orderId.slice(4)}-${milestone.toLowerCase()}`, orderId, caseId: null, at: new Date(at).toISOString(), actor: "driver", actorId: null, eventKind: "milestone", channel: "driver_chat", text: `${text} (simulated by the run)`, milestone }
+}
 
 /** The instants worth looking at for this order, from its records; the ones already in the past at the snapshot are kept when the order is still before them. */
 export function planTimeline(ds: Dataset, orderId: string): Instant[] {
@@ -72,7 +77,7 @@ export function planTimeline(ds: Dataset, orderId: string): Instant[] {
     const slotAt = Date.parse(slot.start_at)
     out.push({ label: "two days before the pickup slot", at: Math.max(snapshot, slotAt - 47 * H), overlay: {} })
     if (assignment) out.push({ label: "the day before the pickup", at: Math.max(snapshot + MIN, slotAt - 26 * H), overlay: { status: "WAITING_FOR_PICKUP", note: "driver booked" } })
-    out.push({ label: "the car is collected (simulated)", at: slotAt + 30 * MIN, overlay: { status: "IN_TRANSIT", note: "the run assumes the collection happened at the slot" } })
+    out.push({ label: "the car is collected (simulated)", at: slotAt + 30 * MIN, overlay: { status: "IN_TRANSIT", note: "the run assumes the collection happened at the slot" }, events: [simulatedMilestone(orderId, slotAt + 30 * MIN, "COLLECTED", "The driver reported the car collected at the pickup")] })
   } else if (order.status === "IN_TRANSIT") {
     out.push({ label: "now, on the road", at: snapshot, overlay: {} })
   }
@@ -89,7 +94,8 @@ export function planTimeline(ds: Dataset, orderId: string): Instant[] {
     if (promise) {
       const promiseAt = Date.parse(promise.start_at)
       out.push({ label: "the delivery is due", at: Math.max(onRoadFrom + 3 * H, promiseAt - 2 * H), overlay: { status: "IN_TRANSIT", note: "approaching delivery" }, phone: { kind: "PHONE", state: "LIVE", quietFrom: null, note: "simulated: the app receives position reports normally; the run lists no fixes" } })
-      out.push({ label: "delivered", at: Math.max(onRoadFrom + 4 * H, promiseAt + H), overlay: { status: "DELIVERED", note: "handed over inside the promise" }, phone: null })
+      const deliveredAt = Math.max(onRoadFrom + 4 * H, promiseAt + H)
+      out.push({ label: "delivered", at: deliveredAt, overlay: { status: "DELIVERED", note: "handed over inside the promise" }, phone: null, events: [simulatedMilestone(orderId, deliveredAt - 10 * MIN, "DELIVERED", "The driver reported the car handed over at the delivery address")] })
     }
   }
   // in time order; two instants within an hour of each other are one step (the later one's world, both labels)
@@ -97,7 +103,7 @@ export function planTimeline(ds: Dataset, orderId: string): Instant[] {
   const merged: Instant[] = []
   for (const i of out) {
     const last = merged[merged.length - 1]
-    if (last && i.at - last.at < H) merged[merged.length - 1] = { ...i, at: Math.max(last.at, i.at), label: `${last.label}; ${i.label}`, phone: i.phone ?? last.phone, overlay: { ...last.overlay, ...i.overlay } }
+    if (last && i.at - last.at < H) merged[merged.length - 1] = { ...i, at: Math.max(last.at, i.at), label: `${last.label}; ${i.label}`, phone: i.phone ?? last.phone, overlay: { ...last.overlay, ...i.overlay }, events: [...(last.events ?? []), ...(i.events ?? [])] }
     else merged.push(i)
   }
   return merged
@@ -114,6 +120,7 @@ export async function runDelivery(ds: Dataset, orderId: string, report: RunRepor
   const instants: Instant[] = report.mode === "LIVE" ? [{ label: "now, as the control room sees it", at: Date.now(), overlay: {} }] : planTimeline(ds, orderId)
   report.plannedSteps = instants.map((i) => `${i.label} (${new Date(i.at).toISOString()})`)
   const runCalls: CallRecord[] = []
+  const simEvents: AppEvent[] = []   // what the run has simulated so far, kept on the timeline of every later step
   const attempts = new Map<string, number>()
   let previous: DerivedItem[] = []
   try {
@@ -122,7 +129,7 @@ export async function runDelivery(ds: Dataset, orderId: string, report: RunRepor
       if (report.mode === "LIVE") {
         const pulled = await pullLive(ds, orderId, order.reference, runCalls)
         if (pulled) { live = pulled.live; asOf = pulled.asOf } else { live = { ...emptyLive(), calls: runCalls }; asOf = new Date().toISOString() }
-      } else { live = { ...emptyLive(), calls: runCalls, phone: instant.phone ?? null }; asOf = new Date(instant.at).toISOString() }
+      } else { simEvents.push(...(instant.events ?? [])); live = { ...emptyLive(), calls: runCalls, phone: instant.phone ?? null, events: [...simEvents] }; asOf = new Date(instant.at).toISOString() }
       const d = buildDossier(ds, orderId, live, asOf, overlay)
       const derived = derive(d)
       const diff = diffDerived(previous, derived)
