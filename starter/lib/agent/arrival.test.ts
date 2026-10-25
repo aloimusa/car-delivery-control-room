@@ -3,8 +3,7 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import type { OrderFacts } from "./context"
-import { arrivalContradiction } from "./gate"
-import type { ProposalInput } from "@/lib/cr/types"
+import { arrivalContradiction, type ProposalInput } from "./gate"
 
 const facts = (tracking: Record<string, unknown>[], steps: OrderFacts["steps"] = []) => ({ tracking, steps } as unknown as OrderFacts)
 const card = (text: string, factText = ""): ProposalInput => ({
