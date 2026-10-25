@@ -83,8 +83,36 @@ export function renderDossier(d: Dossier, opts: { maxHistory?: number } = {}): s
     for (const c of d.live.cases) out.push(`- [${c.status} · ${c.urgency} · ${c.caseKind}] ${c.title}: ${c.summary}${c.waitingFor ? ` (waiting for ${c.waitingFor})` : ""}`)
     out.push("")
   }
+  out.push(...localTimes(d))
   out.push(`## AS OF\n- ${d.asOf}. Phase: ${d.phase.phase} (${d.phase.basis}).`, "")
   return out.join("\n")
+}
+
+/** "16:00 Copenhagen time, 22 October" for an instant in a zone: how a time is said to a person. */
+export function localTime(iso: string, zone: string, withDate = true): string {
+  const city = zone.split("/").pop()!.replace(/_/g, " ")
+  const t = new Date(iso)
+  const clock = t.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: zone, hour12: false })
+  return withDate ? `${clock} ${city} time, ${t.toLocaleDateString("en-GB", { day: "numeric", month: "long", timeZone: zone })}` : `${clock} ${city} time`
+}
+
+/**
+ * The order's key times in the zone of the place they belong to, so nothing read by a person is in UTC: the records
+ * carry instants (14:00Z), and the reasoning model once wrote that as the promise end while the delivery place had 16:00.
+ */
+function localTimes(d: Dossier): string[] {
+  const order = items(d, "orders")[0]?.record; if (!order) return []
+  const addr = (id: string | null | undefined) => items(d, "addresses").map((i) => i.record).find((a) => a.id === id)
+  const pickupZone = addr(order.pickup_address_id)?.timezone ?? "Europe/Helsinki", deliveryZone = addr(order.delivery_address_id)?.timezone ?? pickupZone
+  const windows = items(d, "time_windows").map((i) => i.record).filter((w) => w.is_selected)
+  const slot = windows.find((w) => w.purpose === "SELECTED_PICKUP_SLOT"), promise = windows.find((w) => w.purpose === "CUSTOMER_DELIVERY_PROMISE")
+  const ferry = items(d, "travel_reservations").map((i) => i.record).find((r) => r.kind === "FERRY" && r.status === "BOOKED")
+  const out = [`## LOCAL TIMES (clock times in the records above are UTC; a person is told these, local to the place and labelled)`]
+  if (slot) out.push(`- pickup slot: ${localTime(slot.start_at, pickupZone)} to ${localTime(slot.end_at, pickupZone, false)} (${slot.start_at} to ${slot.end_at})`)
+  if (promise) out.push(`- delivery promise: ${localTime(promise.start_at, deliveryZone)} to ${localTime(promise.end_at, deliveryZone, false)} (${promise.start_at} to ${promise.end_at})`)
+  if (ferry?.check_in_cutoff_at) out.push(`- ferry check-in closes: ${localTime(ferry.check_in_cutoff_at, "Europe/Berlin")} (${ferry.check_in_cutoff_at})`)
+  out.push(`- now: ${localTime(d.asOf, deliveryZone)} at the delivery place (${d.asOf})`, "")
+  return out
 }
 
 // ------------------------------------------------------------------ the call
@@ -96,7 +124,7 @@ Rules you must follow:
 3. needsPerson is for exactly those things. Routine work is not a needsPerson. If nothing needs a person, needsPerson is null.
 4. watching holds at most three derived items, each citing the dossier item ids it rests on (basis). A deadline is at risk when a cutoff, slot or promise is within reach of the latest ETA or there is no position for over an hour on a moving car.
 5. calls: propose at most two calls the agent should place now, and only to a party named in the "Callable parties" list below, written as it is named there. Never the receiver, a delivery contact, a handoff contact or the customer: those are a person's to contact, and belong in needsPerson instead. The DERIVED section lists the checks the rules say are due; a DUE_CHECK in state DUE or OVERDUE belongs in calls unless the dossier shows it is pointless, and a check in state DONE, RETRY or BLOCKED is never proposed again.
-6. headline is one plain sentence an operator reads first. No ids in headline, watching lines or needsPerson text except the order reference.
+6. headline is one plain sentence an operator reads first. No ids in headline, watching lines or needsPerson text except the order reference. Every clock time in them is local to the place it belongs to and labelled with the city, as the LOCAL TIMES section gives it ("16:00 Copenhagen time"); never a UTC time or a Z instant.
 7. Answer with JSON only, matching the schema exactly. No markdown.`.replace("OBS ERVATION", "OBSERVATION")
 
 export const OUTPUT_SCHEMA_TEXT = `{"headline": string, "needsPerson": {"what": string, "why": string, "options": string[1..4], "basis": string[]} | null, "watching": [{"kind": "DEADLINE"|"CONFLICT"|"GAP"|"RISK", "line": string, "severity": "INFO"|"WATCH"|"NEEDS_PERSON"|"URGENT", "basis": string[]}] (max 3), "calls": [{"purpose": ${CallPurpose.options.map((p) => `"${p}"`).join("|")}, "who": string, "reason": string, "urgency": "EMERGENCY"|"URGENT"|"ROUTINE"}] (max 2), "note": string | null, "unknowns": string[] (max 5)}`
