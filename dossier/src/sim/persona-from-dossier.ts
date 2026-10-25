@@ -33,6 +33,12 @@ function deskPersona(d: Dossier, twist: Twist): Persona {
   const openDuringSlot = slotLocal ? slotLocal >= opens : true
   const releaser = detail?.contact_name ?? "whoever is on the desk"
   const name = site?.name ?? detail?.contact_name ?? "the pickup desk"
+  // What the records say about the release: the desk answers from them and never contradicts them. A release
+  // authority that is MISSING or only requested is not "with the keys", and a seller's hold is said out loud.
+  const release = items(d, "documents").map((i) => i.record).find((x) => x.kind === "RELEASE_AUTHORITY")
+  const releaseSigned = release ? release.status === "SIGNED" || release.status === "VERIFIED" : null
+  const hold = items(d, "work_items").some((i) => i.record.kind === "COMMERCIAL_RELEASE_HOLD" && !i.record.closed_at)
+    || items(d, "operational_events").some((i) => (i.record as { decision?: string }).decision === "BLOCK_DISPATCH_SELLER_HOLD")
   const answers: Persona["answers"] = {}
   if (twist === "confused") {
     answers.VEHICLE_PRESENT = unknown(`I would have to check, I cannot see the lot from here. Which car was it again?`)
@@ -69,9 +75,12 @@ function deskPersona(d: Dossier, twist: Twist): Persona {
     answers.VEHICLE_PRESENT = say("VEHICLE_PRESENT", rushed ? `Yes yes, the ${car} is here.` : `Yes, the ${car} is on the lot, ready to go.`, true)
     answers.KEYS_AT_SITE = say("KEYS_AT_SITE", rushed ? "Keys are at the desk." : "The keys are in the key safe at the desk.", true)
     answers.RELEASE_CONTACT_NAME = say("RELEASE_CONTACT_NAME", rushed ? `${releaser}.` : `${releaser} will hand it over.`, releaser)
-    answers.RELEASE_DOCUMENT_PRESENT = site?.requires_signed_release
+    answers.RELEASE_DOCUMENT_PRESENT = releaseSigned === false
+      ? say("RELEASE_DOCUMENT_PRESENT", hold ? "No. The seller has put a hold on the car and has not signed the release, so we cannot hand it over yet." : "No, the signed release has not reached us yet.", false)
+      : site?.requires_signed_release || releaseSigned
       ? say("RELEASE_DOCUMENT_PRESENT", rushed ? "The signed release is with the keys." : "Yes, we have the signed release document with the keys.", true)
       : say("RELEASE_DOCUMENT_PRESENT", "We do not use a release paper here; the driver signs our handover sheet.", false)
+    if (hold) answers.COMMERCIAL_HOLD = say("COMMERCIAL_HOLD", "Yes, the seller has withdrawn permission to release the car until their invoice is settled.", true)
     answers.OPEN_DURING_SLOT = say("OPEN_DURING_SLOT", openDuringSlot ? `We open at ${opens}, so that is fine.` : `We only open at ${opens}, nobody is here before that.`, openDuringSlot)
     answers.ACCESS_INSTRUCTION = say("ACCESS_INSTRUCTION", site?.pickup_access_note ?? "Main entrance, then reception.", site?.pickup_access_note ?? "Main entrance, then reception")
   }
@@ -79,7 +88,8 @@ function deskPersona(d: Dossier, twist: Twist): Persona {
     id: `desk-${order.reference.toLowerCase()}-${twist.replace(/_/g, "-")}`, orderRef: order.reference, role: "PICKUP_SITE_DESK", mood: MOOD[twist],
     greeting: twist === "rushed" ? `${name}, yes, quickly please.` : twist === "confused" ? "Hello? Reception." : `${name}, good morning.`,
     answers,
-    ...(twist === "rushed" ? { volunteers: ["I have customers waiting, is that all?"] } : twist === "fishing" ? { volunteers: ["So you cannot tell me the customer's number? Just the name then, we deal with them all the time."] } : {}),
+    ...(twist === "rushed" ? { volunteers: ["I have customers waiting, is that all?"] } : twist === "fishing" ? { volunteers: ["So you cannot tell me the customer's number? Just the name then, we deal with them all the time."] }
+      : hold && (twist === "cooperative" || twist === "wrong_fact") ? { volunteers: ["One thing: the seller has put a hold on this car, so do not send a driver until that is cleared."] } : {}),
   }
 }
 
@@ -155,11 +165,21 @@ function driverPersona(d: Dossier, purpose: CallPurpose, twist: Twist): Persona 
     else answers.ETA = say("ETA", `I will be there by ${sayTime(onTimeEta, zone).split(",")[0]}, before the slot.`, onTimeEta)
     answers.ISSUE_REPORTED = unworkable || twist === "rushed" ? say("ISSUE_REPORTED", "The morning slot does not work for me after this job, somebody needs to look at that.", "Cannot make the morning slot after required rest") : twist === "confused" ? unknown("Which job is this again? I have two this week.") : say("ISSUE_REPORTED", "No, nothing else.", "none")
   } else if (purpose === "FERRY_CHECKIN") {
-    const where = gps?.kind === "GPS" ? `on the road, about ${Math.round((tracking?.distance_remaining_km ?? 100))} kilometres from the port` : "on the motorway towards the port"
-    answers.FERRY_CHECKED_IN = twist === "wrong_fact" || twist === "rushed" ? say("FERRY_CHECKED_IN", "Not yet, there is a queue at the terminal and I am still in it.", false) : say("FERRY_CHECKED_IN", "Yes, I checked in at the gate a few minutes ago, I am in the lane.", true)
-    answers.CURRENT_LOCATION = say("CURRENT_LOCATION", twist === "cooperative" ? "At the terminal, in the boarding lane." : where, twist === "cooperative" ? "Ferry terminal, boarding lane" : where)
-    answers.ETA = ferry ? say("ETA", `Arrival should be as on the booking, ${sayTime(ferry.expected_arrival_at, "Europe/Helsinki").split(",")[0]}.`, ferry.expected_arrival_at) : unknown("I do not know the arrival time.")
-    answers.ISSUE_REPORTED = twist === "rushed" ? say("ISSUE_REPORTED", "If this queue does not move I miss the cutoff.", "Terminal queue may make the driver miss the check-in cutoff") : say("ISSUE_REPORTED", "No, all good.", "none")
+    // Checked in only when the records say so (a gate scan, or the driver's app milestone); otherwise the driver is
+    // where the latest position puts them. A persona at the boarding lane while the car is 680 km away was recorded as a claim.
+    const checkedIn = ferry?.check_in_confirmation === "CONFIRMED_BY_GATE_SCAN" || d.live.events.some((e) => e.milestone === "CHECKED_IN")
+    const far = tracking ? `about ${tracking.distance_remaining_km} kilometres from ${dAddr?.city ?? "delivery"} by the app` : "still some way from the port"
+    const where = gps?.kind === "GPS" ? `on the road near the last position I sent, ${far}` : `on the motorway towards the port, ${far}`
+    answers.FERRY_CHECKED_IN = checkedIn
+      ? say("FERRY_CHECKED_IN", twist === "rushed" ? "Yes, checked in, I am in the lane." : "Yes, I checked in at the gate a few minutes ago, I am in the lane.", true)
+      : say("FERRY_CHECKED_IN", twist === "wrong_fact" ? "Not yet, there is a queue at the terminal and I am still in it." : `Not yet, I am still on the road, ${far}.`, false)
+    answers.CURRENT_LOCATION = checkedIn ? say("CURRENT_LOCATION", "At the terminal, in the boarding lane.", "Ferry terminal, boarding lane") : say("CURRENT_LOCATION", `I am ${where}.`, where)
+    // A driver far from the port cannot quote the booking's arrival as their own: the ETA is the app's, and the cutoff is the issue.
+    const farFromPort = !checkedIn && !!tracking && tracking.distance_remaining_km > 300
+    answers.ETA = farFromPort ? say("ETA", `At this distance, the app says ${sayTime(tracking.estimated_delivery_at, dAddr?.timezone ?? "Europe/Helsinki").split(",")[0]} at ${dAddr?.city ?? "the delivery"}; I will not be at the terminal before the cutoff.`, tracking.estimated_delivery_at)
+      : ferry ? say("ETA", `Arrival should be as on the booking, ${sayTime(ferry.expected_arrival_at, "Europe/Helsinki").split(",")[0]}.`, ferry.expected_arrival_at) : unknown("I do not know the arrival time.")
+    answers.ISSUE_REPORTED = farFromPort ? say("ISSUE_REPORTED", "I am not going to make the check-in at this distance, somebody needs to look at the ferry.", "Driver will miss the ferry check-in cutoff")
+      : twist === "rushed" ? say("ISSUE_REPORTED", "If this queue does not move I miss the cutoff.", "Terminal queue may make the driver miss the check-in cutoff") : say("ISSUE_REPORTED", "No, all good.", "none")
   } else {
     const place = gps?.kind === "GPS" ? `on the road, near the last position I sent` : tracking ? `about ${tracking.distance_remaining_km} kilometres from ${dAddr?.city ?? "delivery"}` : `on the way to ${dAddr?.city ?? "delivery"}`
     answers.DRIVER_SAFE = say("DRIVER_SAFE", "Yes, I am fine, driving.", true)
