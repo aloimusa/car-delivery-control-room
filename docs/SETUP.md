@@ -15,14 +15,9 @@ From a clone to a running Road Desk, locally and on a server. One secret is need
 Copy `starter/.env.example` to `starter/.env` and `dossier/.env.example` to `dossier/.env`, put the key in
 `OPENROUTER_API_KEY` in each, and leave the rest. Every other line has a working default.
 
-**One thing to add.** In `starter/.env.example` the model lines are commented out. The code's default for the agent
-when `AGENT_MODEL` is unset is `anthropic/claude-opus-5.5` (`starter/lib/agent/client.ts`), about ten times the cost
-of the model the project was measured with. Uncomment or add these two lines in `starter/.env`:
-
-```
-AGENT_MODEL=deepseek/deepseek-v4-pro
-SIM_DRIVER_MODEL=deepseek/deepseek-v4.1-flash
-```
+The model lines in `starter/.env.example` are commented out on purpose: the code's defaults are the models the
+project was measured with (`deepseek/deepseek-v4-pro` for the agent, `deepseek/deepseek-v4.1-flash` for the simulated
+driver, `starter/lib/agent/client.ts`). Set them only to try something else.
 
 The dossier service's defaults in code already match its `.env.example` (`REASON_MODEL=deepseek/deepseek-v4-pro`,
 the flash model for the rest).

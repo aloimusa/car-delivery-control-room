@@ -122,8 +122,8 @@ API directly (`dossier/src/reason.ts`, `chat()`).
 
 | Job | Variable | File | Value in `.env.example` | Default in code when unset |
 |---|---|---|---|---|
-| The case agent | `AGENT_MODEL` | `starter/lib/agent/client.ts` | `deepseek/deepseek-v4-pro` | `anthropic/claude-opus-5.5` |
-| Simulated driver (demo) | `SIM_DRIVER_MODEL` | `starter/lib/agent/client.ts` | `deepseek/deepseek-v4.1-flash` | `anthropic/claude-haiku-5.5` |
+| The case agent | `AGENT_MODEL` | `starter/lib/agent/client.ts` | `deepseek/deepseek-v4-pro` | `deepseek/deepseek-v4-pro` |
+| Simulated driver (demo) | `SIM_DRIVER_MODEL` | `starter/lib/agent/client.ts` | `deepseek/deepseek-v4.1-flash` | `deepseek/deepseek-v4.1-flash` |
 | Drivability screen (one word per driver message) | `DRIVABILITY_MODEL` | `starter/lib/agent/drivability.ts` | `anthropic/claude-haiku-5.5` | `anthropic/claude-haiku-5.5` |
 | Photo descriptions | `VISION_MODEL` | `starter/lib/agent/vision.ts` | `anthropic/claude-haiku-5.5` | `anthropic/claude-haiku-5.5` |
 | Dossier reasoning step; Mira in simulated calls; transcript extraction | `REASON_MODEL` | `dossier/src/reason.ts`, `llm-call.ts` | `deepseek/deepseek-v4-pro` | `deepseek/deepseek-v4-pro` |
@@ -137,9 +137,7 @@ The intended split is: the pro model for anything that reasons over a dossier, t
 rewrites or role-plays, and Haiku for the two things DeepSeek cannot do on OpenRouter (read a photo; answer the
 one-word drivability screen on every outbound driver line).
 
-**Note the first two rows.** In `starter/.env.example` the model lines are commented out. The code's default for
-`AGENT_MODEL` when nothing is set is `anthropic/claude-opus-5.5`, about ten times the cost of the DeepSeek model the
-rest of the project was measured with. Set `AGENT_MODEL` and `SIM_DRIVER_MODEL` explicitly (see `docs/SETUP.md`).
+A setup that sets only the key runs on these defaults; nothing lands on a dearer model by accident.
 
 Effort: `AGENT_EFFORT_FAST` (default `low`) for driver, voice and site turns; `AGENT_EFFORT_DEEP` (default `medium`)
 for operator turns. A turn makes at most 12 model calls and 16 000 output tokens (`starter/lib/agent/config.ts`).

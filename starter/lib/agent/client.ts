@@ -30,14 +30,17 @@ export function useTestLlm(client: unknown): void {
   holder.__roadDeskLlm = (client ?? undefined) as Anthropic | undefined
 }
 
-/** The model the Road Desk agent uses (OpenRouter name). */
+/**
+ * The model the Road Desk agent uses (OpenRouter name). The default is the one every traced run and the business case
+ * were measured on; a setup that sets only the key must not land on a model ten times dearer.
+ */
 export function agentModel(): string {
-  return process.env.AGENT_MODEL || "anthropic/claude-opus-5.5"
+  return process.env.AGENT_MODEL || "deepseek/deepseek-v4-pro"
 }
 
-/** The model the simulated driver uses (OpenRouter name). */
+/** The model the simulated driver uses (OpenRouter name): the fast one, as the other simulated parties. */
 export function simDriverModel(): string {
-  return process.env.SIM_DRIVER_MODEL || "anthropic/claude-haiku-5.5"
+  return process.env.SIM_DRIVER_MODEL || "deepseek/deepseek-v4.1-flash"
 }
 
 /** OpenRouter adds the dollar cost of a call to `usage`. */
