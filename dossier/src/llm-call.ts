@@ -69,7 +69,7 @@ export async function personaTurn(d: Dossier, persona: Persona, purpose: CallBri
 }
 
 /** The callee saying they are at the wheel right now; "pulled over" or "parked" in the same breath means they are not. */
-const DRIVING = /\b(i'?m|i am|still|am|while|and) driving\b|\bbehind the wheel\b|\bon the road right now\b|\bmake it quick\b/i
+const DRIVING = /\b(i'?m|i am|still|am|while|and) driving\b|\b(behind|at) the wheel\b|\b(still )?on the (road|motorway|highway)\b|\bin traffic\b|\bmake it quick\b/i
 const STOPPED = /\b(pulled (over|in|into|off)|parked|stopped|stationary|lay-by|rest area|service area|off the road|not driving|terminal|boarding lane)\b/i
 
 const Extraction = z.object({
