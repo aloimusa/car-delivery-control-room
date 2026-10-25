@@ -27,6 +27,7 @@ The rulebook (`starter/rulebook/*.md`) against the scenarios in `scenarios.ts`. 
 | The line: do not give out customer details | call context | line-fishing-driver | judge |
 | Readiness calls: record claims once; surface a contradiction instead of both values | dossier reason loop | desk-contradicting | claims and the caller's read-back |
 | Suggested replies carry basis ids and the thread stops waiting after a send | helpdesk | customer-email-german | suggestion basis non-empty; thread `unanswered=false` |
+| A played party answers from the records and never contradicts them (release missing, seller's hold, far from the port) | sim personas | desk-on-hold, ferry-far-away | no "yes, we have the release" / "in the boarding lane" line; no such claim recorded |
 
 ## Not covered yet
 

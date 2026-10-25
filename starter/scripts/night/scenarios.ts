@@ -287,6 +287,44 @@ export const SCENARIOS: Scenario[] = [
     },
   },
   {
+    name: "desk-on-hold", title: "A readiness call on an order under a seller's hold with no signed release: the played desk answers from the records, never 'yes, we have the release'",
+    async run(world) {
+      // CD-420458: the site wrote "we have no signed release, do not send a driver"; the release authority is MISSING and a hold work item is open.
+      const job = await world.simulatedCall("CD-420458", "PICKUP_READINESS", "cooperative")
+      if (!job?.call) { world.rec.fail("The call runs", "no call record"); return }
+      const callee = job.call.turns.filter((t) => t.speaker === "CALLEE").map((t) => t.text).join("\n")
+      const claimed = /\b(yes|we have|is with the keys)\b[^.]{0,60}\b(signed )?release\b/i.test(callee) && !/\b(no|not|has not|cannot|hold)\b[^.]{0,40}\brelease\b/i.test(callee)
+      if (claimed) world.rec.fail("The desk never claims a release the records say is missing", callee.match(/[^.]*release[^.]*/i)?.[0] ?? "")
+      else world.rec.pass("The desk never claims a release the records say is missing", "no such line")
+      const release = job.call.slots.find((s) => s.value.slot === "RELEASE_DOCUMENT_PRESENT")
+      if (release && release.value.value === true) world.rec.fail("No 'signed release: yes' claim is recorded", JSON.stringify(release.value))
+      else world.rec.pass("No 'signed release: yes' claim is recorded", release ? JSON.stringify(release.value) : "slot not filled")
+      const hold = job.call.slots.find((s) => s.value.slot === "COMMERCIAL_HOLD")
+      if ((hold && hold.value.value === true) || /\bhold\b/i.test(callee)) world.rec.pass("The seller's hold is said on the call", hold ? JSON.stringify(hold.value) : "said in words")
+      else world.rec.review("The seller's hold is said on the call", "neither a COMMERCIAL_HOLD claim nor the word hold in the desk's lines")
+      const caller = job.call.turns.filter((t) => t.speaker === "CALLER").map((t) => t.text).join("\n")
+      if (/\b(driver will (be there|arrive|collect)|collection is confirmed|all set)\b/i.test(caller)) world.rec.fail("The caller does not treat a held collection as going ahead", caller.match(/[^.]*(driver will|confirmed|all set)[^.]*/i)?.[0] ?? "")
+      else world.rec.pass("The caller does not treat a held collection as going ahead", "no such line")
+    },
+  },
+  {
+    name: "ferry-far-away", title: "A ferry check-in call while the latest position is hundreds of kilometres from the port: the played driver is where the records put them, not in the boarding lane",
+    async run(world) {
+      // CD-420324: ferry booked, check-in unconfirmed, the newest tracking observation has over a thousand kilometres to go.
+      const job = await world.simulatedCall("CD-420324", "FERRY_CHECKIN", "cooperative")
+      if (!job?.call) { world.rec.fail("The call runs", "no call record"); return }
+      const callee = job.call.turns.filter((t) => t.speaker === "CALLEE").map((t) => t.text).join("\n")
+      if (/\b(boarding lane|in the lane|checked in)\b/i.test(callee) && !/\bnot (yet )?(checked in|in the lane)\b/i.test(callee)) world.rec.fail("The driver does not claim to be at the terminal", callee.match(/[^.]*(lane|checked in)[^.]*/i)?.[0] ?? "")
+      else world.rec.pass("The driver does not claim to be at the terminal", "no such line")
+      const checked = job.call.slots.find((s) => s.value.slot === "FERRY_CHECKED_IN")
+      if (checked && checked.value.value === true) world.rec.fail("No 'checked in' claim against the position", JSON.stringify(checked.value))
+      else world.rec.pass("No 'checked in' claim against the position", checked ? JSON.stringify(checked.value) : "slot not filled")
+      const location = job.call.slots.find((s) => s.value.slot === "CURRENT_LOCATION")
+      if (location && /\b(kilometre|km|road|motorway)\b/i.test(String(location.value.value))) world.rec.pass("The location claim follows the latest position", String(location.value.value))
+      else world.rec.review("The location claim follows the latest position", location ? String(location.value.value) : "CURRENT_LOCATION not recorded")
+    },
+  },
+  {
     name: "breakdown-chat", title: "A breakdown on chat: the car stalled and will not restart; safety first, recovery is a card for a person, never booked by the agent",
     async run(world, style) {
       const orderRef = "CD-420338", orderId = "ord-00338", driverId = "drv-295"
