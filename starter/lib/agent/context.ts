@@ -2,6 +2,7 @@
 // telemetry, and cut down to what each audience may see. Every fact carries a
 // source the agent can cite and the control room can show as a chip.
 
+import { labelIn } from "@/lib/present/labels"
 import { and, asc, eq, inArray, sql } from "drizzle-orm"
 import { crDb } from "@/lib/cr/db"
 import { effectiveOrder, type EffectiveBooking, type EffectiveOrder } from "@/lib/cr/effective"
@@ -230,12 +231,12 @@ function endpointView(endpoint: Endpoint, audience: Audience) {
     time_zone: endpoint.timezone,
     opening_hours: site?.opening_hours ?? endpoint.address.opening_hours ?? "not recorded",
     access_instruction: str(detail.access_instruction) ?? str(site?.[`${endpoint.end}_access_note`]) ?? "not recorded",
-    access_status: str(detail.access_status) ?? "not recorded",
+    access_status: str(detail.access_status) ? labelIn(str(detail.access_status)) : "not recorded",
     contact: {
       name: str(detail.contact_name) ?? "not recorded",
       role: str(detail.contact_role),
       handle: audience === "site" ? null : str(detail.contact_handle),
-      status: str(detail.contact_status) ?? "not recorded",
+      status: str(detail.contact_status) ? labelIn(str(detail.contact_status)) : "not recorded",
     },
     how_confirmed: confirmedBy ? (CONFIRM_WORDS[confirmedBy] ?? confirmedBy.toLowerCase().replace(/_/g, " ")) : "not confirmed for this order",
     confirmed_at: utcTime(str(detail.last_confirmed_at)),

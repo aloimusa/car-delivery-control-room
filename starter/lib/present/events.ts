@@ -2,7 +2,7 @@
 // only reads it out with names instead of identifiers.
 
 import { type Bundle, type EventRow, num, obj, rows, str } from "./bundle"
-import { humanize, label, labelIn } from "./labels"
+import { humanize, label, labelIn, counted } from "./labels"
 import { fmtDateTime, fmtMoney } from "./time"
 import type { HistoryEvent } from "./types"
 
@@ -118,7 +118,7 @@ export function describeEvent(event: EventRow, bundle: Bundle): HistoryEvent {
       text = `${label(str(changes.kind))} required`
       break
     case "proof.submitted":
-      text = `${label(str(changes.kind))} submitted${num(changes.file_count) ? ` (${num(changes.file_count)} files)` : ""}`
+      text = `${label(str(changes.kind))} submitted${num(changes.file_count) ? ` (${counted(num(changes.file_count) as number, "file")})` : ""}`
       break
     case "proof.approved":
       text = `${label(str(changes.kind)) || "Proof"} approved`

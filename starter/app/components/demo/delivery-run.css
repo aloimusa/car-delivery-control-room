@@ -19,7 +19,7 @@
 .drun-steps > li.woken::before { background: var(--teal); }
 .drun-steps > li.pending { color: var(--muted); font-size: 13px; display: flex; align-items: center; gap: 8px; }
 .drun-step-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; }
-.drun-step-head b { font-size: 14px; font-weight: 600; text-transform: capitalize; }
+.drun-step-head b { font-size: 14px; font-weight: 600; }
 .drun-derived, .drun-calls, .drun-watching { display: grid; gap: 4px; font-size: 13px; }
 .drun-derived li, .drun-calls li { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .drun-derived .icon, .drun-calls .icon { color: var(--subtle); }

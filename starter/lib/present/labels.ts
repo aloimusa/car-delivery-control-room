@@ -134,6 +134,29 @@ export function labelIn(code: string | null | undefined): string {
   return text.charAt(0).toLowerCase() + text.slice(1)
 }
 
+/** Codes that stand alone in prose ("ROUTINE", "PLANNED") and are safe to read out; acronyms (ETA, VIN) are left as they are. */
+const PROSE_WORDS = new Set(["ROUTINE", "URGENT", "EMERGENCY", "PLANNED", "COMPLETED", "PENDING", "UNCONFIRMED", "CONFIRMED", "PARTIAL", "FAILED", "SKIPPED", "MISSED", "CANCELLED", "ACTIVE", "INACTIVE", "UNKNOWN", "OVERDUE", "OPEN", "CLOSED", "REJECTED", "APPROVED", "EXECUTED", "SELECTED", "REQUESTED"])
+const WHO_WORDS: Record<string, string> = { CUSTOMER: "the customer", OPS: "Ops", SYSTEM: "the system", SITE: "the site", DRIVER: "the driver", AGENT: "the agent", OPERATOR: "an operator" }
+
+/**
+ * Codes inside text a person reads, as words: "contact UNCONFIRMED, access NEEDS_VERIFICATION" reads "contact
+ * unconfirmed, access needs verification"; "Pickup slot from OPS" reads "Pickup slot from Ops"; a bare record id in
+ * brackets ("(conv-keys-00326)") is dropped. The one place every enum shown to a person is mapped.
+ */
+export function plainCodes(text: string | null | undefined): string {
+  if (!text) return ""
+  return String(text)
+    .replace(/\s*\((?:conv|msg|evt|case|prop|ord|alert|wi|inc|call|run|thread|inboxmsg)-[a-z0-9-]+\)/gi, "")
+    .replace(/\b(from|by|to|at|with|per) (CUSTOMER|OPS|SYSTEM|SITE|DRIVER|AGENT|OPERATOR)\b/g, (_, prep: string, who: string) => `${prep} ${WHO_WORDS[who]}`)
+    .replace(/\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b/g, (code) => labelIn(code))
+    .replace(/\b[A-Z]{4,}\b/g, (word) => PROSE_WORDS.has(word) ? labelIn(word) : word)
+}
+
+/** "1 file", "4 files". */
+export function counted(n: number, noun: string, plural = `${noun}s`): string {
+  return `${n} ${n === 1 ? noun : plural}`
+}
+
 export function severityLabel(severity: string | null | undefined): string {
   return label(severity).toLowerCase() || "unknown"
 }

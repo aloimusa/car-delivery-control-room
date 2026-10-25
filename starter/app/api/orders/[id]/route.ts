@@ -14,7 +14,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
   // same information read out with labels, names and grouping for the interface.
   const view = buildRecordView(bundle)
   // The call service's calls on this order (demo runs, the autopilot, ingested live calls), so the page lists what the map panel lists.
-  const serviceCalls = await orderCallViews(bundle)
+  const serviceCalls = await orderCallViews(bundle, view.header.to.zone ?? view.header.from.zone ?? null)
   return NextResponse.json({
     order, customer, pickup, delivery, pickupSite, deliverySite, items, drivers, alerts, conversations: threads, messages, events,
     related, bundleOrderRefs, view, serviceCalls,

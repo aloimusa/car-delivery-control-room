@@ -1,5 +1,6 @@
 "use client"
 
+import { plainCodes } from "@/lib/present/labels"
 import { useState } from "react"
 import {
   decisionPath, outcomePath, refreshPath,
@@ -110,8 +111,8 @@ export function DecisionCard({ card, onDecided }: { card: DecisionCardView; onDe
       <button type="button" className="btn" disabled={busy} onClick={redraft}>Ask the agent to redraft</button>
     </div>}
     <h2 className="dcard-title" id={`card-${card.id}`}>{card.title}</h2>
-    {card.whatHappened && <p className="dcard-what">{card.whatHappened}</p>}
-    {card.recommendation && card.recommendation !== card.title && card.recommendation !== card.whatHappened && <p className="dcard-rec"><b>Recommended:</b> {card.recommendation}</p>}
+    {card.whatHappened && <p className="dcard-what">{plainCodes(card.whatHappened)}</p>}
+    {card.recommendation && card.recommendation !== card.title && card.recommendation !== card.whatHappened && <p className="dcard-rec"><b>Recommended:</b> {plainCodes(card.recommendation)}</p>}
     {driveOn && <p className="dcard-driveon"><Icon name="alert" size={14} />{card.approvalRule}</p>}
 
     {card.booking && <section className="dcard-sec">
@@ -157,7 +158,7 @@ export function DecisionCard({ card, onDecided }: { card: DecisionCardView; onDe
 
     {details > 0 && <details className="dcard-details">
       <summary><Icon name="chevron" size={12} />What the agent found ({details})</summary>
-      {card.facts.length > 0 && <section className="dcard-sec"><h3>What we know</h3><ul className="dcard-facts">{card.facts.map((fact, index) => <li key={index}><span>{fact.text}</span>{fact.sources.length ? <Sources sources={fact.sources} /> : <span className="sources"><span className="source unsourced" title="The agent gave no record for this line">no source given</span></span>}</li>)}</ul></section>}
+      {card.facts.length > 0 && <section className="dcard-sec"><h3>What we know</h3><ul className="dcard-facts">{card.facts.map((fact, index) => <li key={index}><span>{plainCodes(fact.text)}</span>{fact.sources.length ? <Sources sources={fact.sources} /> : <span className="sources"><span className="source unsourced" title="The agent gave no record for this line">no source given</span></span>}</li>)}</ul></section>}
       {card.unknowns.length > 0 && <section className="dcard-sec"><h3>Still unknown</h3><ul className="dcard-unknowns">{card.unknowns.map((item, index) => <li key={index}>{item}</li>)}</ul></section>}
       {card.agentDid.length > 0 && <section className="dcard-sec"><h3>What the agent already did</h3><ul>{card.agentDid.map((item, index) => <li key={index}>{item}</li>)}</ul></section>}
       {card.evidence.length > 0 && <p className="dcard-evidence">Evidence: <Sources sources={card.evidence} /></p>}

@@ -28,6 +28,17 @@ export type CallRecord = {
   retryAfter: string | null
 }
 
+/** One record per distinct call: the service can hold the same placed call under two ids (a run's copy and the rendered one). */
+export function dedupeCalls(calls: CallRecord[]): CallRecord[] {
+  const seen = new Set<string>()
+  return calls.filter((call) => {
+    const key = [call.brief?.purpose ?? "", call.brief?.callee.name ?? "", call.startedAt, call.turns.map((turn) => turn.text).join("|")].join("\u0000")
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
 export type DossierItemRef = { collection: string; id: string; at: string | null; strength: string; membership: string }
 export type ServiceDossier = { phase?: { phase: string; basis: string }; classes: Record<string, DossierItemRef[]> }
 
@@ -60,7 +71,8 @@ export function readToolArgument(argument: unknown): string {
     const value = raw === "true" ? "yes" : raw === "false" ? "no" : /^[A-Z_]+$/.test(raw) ? words(raw) : raw
     return `${slotLabel(match[1])}: ${value}`
   })
-  if (!pairs.length) return text
+  // No pairs: "ROUTINE OTHER_QUESTION" is still codes, read out as "Routine, other question".
+  if (!pairs.length) return text.replace(/\b[A-Z][A-Z_]{2,}\b/g, words).replace(/^([a-z])/, (char) => char.toUpperCase()).replace(/^(\w+) (?=\w)/, (_, first: string) => `${first}, `)
   const lead = head ? `${words(head[1]).replace(/^./, (char) => char.toUpperCase())}, ${words(head[2])}. ` : ""
   return `${lead}${pairs.join(" · ")}`
 }

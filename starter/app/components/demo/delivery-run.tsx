@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { useCallback, useEffect, useState } from "react"
-import { labelIn } from "@/lib/present/labels"
+import { labelIn, plainCodes } from "@/lib/present/labels"
 import { fmtDateTime } from "@/lib/present/time"
 import { Icon } from "../icons"
 import { ClaimsList, Scorecard } from "../calls/review-parts"
@@ -115,7 +115,7 @@ export function DeliveryRun({ orders }: { orders: { reference: string; id: strin
       <ol className="drun-steps">
         {run.steps.map((step) => <li key={step.index} className={step.reasoned ? "woken" : "quiet"}>
           <div className="drun-step-head">
-            <b>{step.label}</b>
+            <b>{step.label.charAt(0).toUpperCase() + step.label.slice(1)}</b>
             <span className="calls-quiet">{fmtDateTime(step.asOf)} · {labelIn(step.phase).toLowerCase()}</span>
           </div>
           {step.derived.length > 0 && <ul className="drun-derived">
@@ -125,9 +125,9 @@ export function DeliveryRun({ orders }: { orders: { reference: string; id: strin
             </li>)}
           </ul>}
           {step.reasoned ? <div className="drun-reasoned">
-            <p className="drun-headline">{step.reasoned.headline}</p>
-            {step.reasoned.needsPerson ? <p className="drun-need"><b>Needs a person:</b> {step.reasoned.needsPerson.what} <span className="calls-quiet">({step.reasoned.needsPerson.options.join(" · ")})</span></p> : <p className="calls-quiet">Nothing needs a person.</p>}
-            {step.reasoned.watching.length > 0 && <ul className="drun-watching">{step.reasoned.watching.map((item, index) => <li key={index}><span className="chip-s">{labelIn(item.kind).toLowerCase()}</span> {item.line}</li>)}</ul>}
+            <p className="drun-headline">{plainCodes(step.reasoned.headline)}</p>
+            {step.reasoned.needsPerson ? <p className="drun-need"><b>Needs a person:</b> {plainCodes(step.reasoned.needsPerson.what)} <span className="calls-quiet">({step.reasoned.needsPerson.options.map(plainCodes).join(" · ")})</span></p> : <p className="calls-quiet">Nothing needs a person.</p>}
+            {step.reasoned.watching.length > 0 && <ul className="drun-watching">{step.reasoned.watching.map((item, index) => <li key={index}><span className="chip-s">{labelIn(item.kind).toLowerCase()}</span> {plainCodes(item.line)}</li>)}</ul>}
           </div> : <p className="calls-quiet">{step.notes[0] ?? "Nothing changed; the model was not woken."}</p>}
           {step.calls.length > 0 && <ul className="drun-calls">
             {step.calls.map((call) => <li key={call.callId}>
@@ -137,7 +137,7 @@ export function DeliveryRun({ orders }: { orders: { reference: string; id: strin
             </li>)}
           </ul>}
           {step.modelOnlyCalls.map((item, index) => <p key={index} className="calls-quiet">The model also proposed {words(item.purpose).toLowerCase()} to {item.who}: {item.reason}</p>)}
-          {step.notes.slice(step.reasoned ? 0 : 1).map((note, index) => <p key={index} className="calls-quiet">{note}</p>)}
+          {step.notes.slice(step.reasoned ? 0 : 1).map((note, index) => <p key={index} className="calls-quiet">{plainCodes(note)}</p>)}
         </li>)}
         {run.status === "running" && run.steps.length < run.plannedSteps.length && <li className="pending"><span className="spinner" aria-hidden="true" />{run.plannedSteps[run.steps.length]?.replace(/ \(.*\)$/, "")}…</li>}
       </ol>
