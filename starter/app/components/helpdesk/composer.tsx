@@ -51,7 +51,17 @@ export function Composer({ to, channelLabel, suggest, send, onSent, autoFocus = 
     if (draft) setLanguage(draft.language)
     area.current?.focus()
   }
-  const takeNote = () => { if (draft?.internalNote) { setText(draft.internalNote); setInternal(true); area.current?.focus() } }
+  // The desk note is filed as it stands, like "Use this draft" sends a draft: no detour through the internal-note tab,
+  // and the suggestions stay on screen for the reply that follows.
+  const [filing, setFiling] = useState(false)
+  const fileNote = async () => {
+    const note = draft?.internalNote
+    if (!note || filing) return
+    setFiling(true); setError("")
+    try { await send(note, true, null); setDraft((current) => current ? { ...current, internalNote: null } : current); setSent("Note filed."); setTimeout(() => setSent(""), 3000); onSent?.() }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "The note could not be saved.") }
+    finally { setFiling(false) }
+  }
   const submit = async () => {
     const body = text.trim()
     if (!body || sending) return
@@ -85,7 +95,7 @@ export function Composer({ to, channelLabel, suggest, send, onSent, autoFocus = 
           </div>
         </li>)}
       </ul>
-      {draft.internalNote && <p className="drafts-note"><b>Note for the desk:</b> {draft.internalNote} <button type="button" className="link-btn" onClick={takeNote}>File it</button></p>}
+      {draft.internalNote && <p className="drafts-note"><b>Note for the desk:</b> {draft.internalNote} <button type="button" className="btn small" onClick={() => void fileNote()} disabled={filing}>{filing ? "Filing…" : "File the note"}</button></p>}
     </div>}
     <textarea ref={area} className="composer-text" rows={internal ? 3 : 4} value={text} onChange={(event) => setText(event.target.value)} onKeyDown={onKey}
       placeholder={internal ? "What the desk should know about this thread. The other party never sees this." : openingPrompt ? "Why the desk is writing, and what you need from them." : `Write to ${to ?? "them"}, or ask for a suggested reply first.`}
