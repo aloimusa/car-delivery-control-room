@@ -33,7 +33,9 @@ export function DealerDesk({ site, collections, asks, callable }: {
       <ul className="dealer-list">{collections.map((item) => <li key={item.orderId} className={`dealer-card${call?.reference === item.reference ? " active" : ""}`}>
         <div className="dc-main">
           <b>{item.vehicle}</b> <span className="q-ref">{item.reference}</span>
-          <p>{item.slot ? `Collection ${item.slot}` : "No collection slot yet"} · {item.driver ? `driver ${item.driver}` : "no driver booked"} · {item.stage}</p>
+          <p>{item.slot ? `Collection ${item.slot}` : "No collection slot yet"}</p>
+          <p>{item.driver ? `Driver ${item.driver}` : "No driver booked"}</p>
+          {item.collected && <p>{item.stage}</p>}
           {item.plate && <p className="dc-quiet">Plate <span className="mono">{item.plate}</span></p>}
         </div>
         {item.collected ? <p className="dc-reason"><b>Collected</b><br />nothing left to check with the desk</p>

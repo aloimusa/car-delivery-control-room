@@ -22,7 +22,9 @@ export function ActionStrip({ orderId, compact = false }: { orderId: string; com
   if (!strip) return null
   return <div className={`action-strip${compact ? " compact" : ""}`} role="group" aria-label="Operator actions">
     {compact ? null
-      : <p className="as-route"><b>{strip.from}</b><Icon name="arrow" size={13} /><b>{strip.to}</b>{strip.when && <span> · {strip.when}</span>}</p>}
+      : strip.where
+      ? <p className="as-route"><Icon name="pin" size={13} /><b>{strip.where}</b>{strip.when && <span> · {strip.when}</span>}</p>
+      : <p className="as-route">{strip.when ? <span>{strip.when}</span> : <><b>{strip.from}</b><Icon name="arrow" size={13} /><b>{strip.to}</b></>}</p>}
     {strip.actions.length > 0 && <div className="as-actions">
       {strip.actions.map((action) => action.agentMay && action.cardUrl
         ? <button type="button" key={action.label} className="as-btn as-agent" title={`Mira, Bahn's assistant, calls ${action.who ?? "them"} on the Road Desk line; you answer as them`}

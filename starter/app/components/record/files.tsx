@@ -27,6 +27,9 @@ export function OrderFiles({ orderId }: { orderId: string }) {
     <span className="file-thumb">{file.content_type === "image/jpeg"
       // eslint-disable-next-line @next/next/no-img-element -- signed local object-store URL
       ? <img src={file.url} alt={file.evidence_note ?? `${label(file.kind)} case photo`} />
+      : file.content_type === "application/pdf"
+      // The browser renders the first page itself: a real preview of the sample document, no server-side rasteriser.
+      ? <object className="file-pdf" data={`${file.url}#page=1&toolbar=0&navpanes=0&scrollbar=0&view=FitH`} type="application/pdf" aria-label={`${label(file.kind)} document`}><Icon name="file" size={22} /></object>
       : <Icon name="file" size={22} />}</span>
     <b>{label(file.kind)}</b>
     <small>{file.content_type === "application/pdf" ? "PDF" : "Photo"} · {label(file.status).toLowerCase()}</small>

@@ -341,7 +341,8 @@
 .watch-warn .watch-dot { background: var(--orange); }
 .watch-accent .watch-dot { background: var(--teal); }
 .watch-why { margin: 6px 0 2px 15px; font-size: 12.5px; color: var(--muted); display: grid; gap: 4px; }
-.watch-why ul { display: grid; gap: 2px; color: var(--subtle); font-size: 12px; }
+.watch-why ul.watch-src { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+.watch-why ul.watch-src li { font-size: 11.5px; line-height: 1.2; color: var(--subtle); padding: 3px 8px; border: 1px solid var(--hair-soft); border-radius: 999px; white-space: nowrap; }
 .recent { display: grid; gap: 7px; }
 .recent li { display: grid; grid-template-columns: 76px 1fr; gap: 8px; font-size: 13px; line-height: 1.45; }
 .recent time { color: var(--subtle); font-size: 12px; font-variant-numeric: tabular-nums; padding-top: 1px; }

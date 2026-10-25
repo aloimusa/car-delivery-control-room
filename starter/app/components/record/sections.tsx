@@ -113,8 +113,9 @@ function RouteLeg({ leg, view }: { leg: JourneyLeg; view: RecordView }) {
   return <div className={`route-leg tone-${leg.tone}`}>
     <span className="route-leg-line"><Icon name="car" size={16} /></span>
     {leg.distanceKm != null && <b>{leg.distanceKm} km</b>}
-    {assignment ? <span><ActorName actor={assignment.driver} /> · {assignment.statusLabel.toLowerCase()}</span> : <span>No driver yet</span>}
-    {leg.tracking?.eta && <span className="route-leg-eta">ETA {fmtDateTime(leg.tracking.eta, view.header.keyDates.find((date) => date.key === "promise")?.zone ?? null)}{age ? `, ${age.text}` : ""}</span>}
+    {assignment ? <span><ActorName actor={assignment.driver} /></span> : <span>No driver yet</span>}
+    {leg.tracking?.eta && <span className="route-leg-eta">ETA {fmtDateTime(leg.tracking.eta, view.header.keyDates.find((date) => date.key === "promise")?.zone ?? null)}</span>}
+    {leg.tracking?.eta && age && <small className="route-leg-age">driver app · {age.text}</small>}
   </div>
 }
 

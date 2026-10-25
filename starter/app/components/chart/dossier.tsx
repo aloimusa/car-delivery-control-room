@@ -104,7 +104,7 @@ export function Dossier({ node, onClose }: { node: ChartNode; onClose: () => voi
             <summary><span className="watch-dot" aria-hidden="true" />{item.text}</summary>
             <div className="watch-why">
               <p>{item.why}</p>
-              {item.sources.length > 0 && <ul>{item.sources.map((source) => <li key={source}>{source}</li>)}</ul>}
+              {item.sources.length > 0 && <ul className="watch-src">{item.sources.map((source) => <li key={source}>{source}</li>)}</ul>}
             </div>
           </details>
         </li>)}</ul>

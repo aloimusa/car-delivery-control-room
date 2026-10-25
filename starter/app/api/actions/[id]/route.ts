@@ -4,6 +4,9 @@ import { orderActions } from "@/lib/present/call-service"
 import type { ActionStripView } from "@/lib/present/call-types"
 import { loadOrder } from "@/lib/present/load"
 import { buildRecordView } from "@/lib/present/record"
+import { relativeTo } from "@/lib/present/time"
+import { latestTelemetry } from "@/lib/cr/queries"
+import type { GpsData } from "@/lib/cr/types"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -37,7 +40,17 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     const name = who.toLowerCase()
     return view.threads.find((thread) => thread.counterparty && (thread.counterparty.name.toLowerCase().includes(name) || name.includes(thread.counterparty.name.toLowerCase()))) ?? null
   }
+  // Where the car is thought to be: the driver app's last position while the car is on the road. The route itself
+  // is on the page already; the strip answers "where is it now".
+  let where: string | null = null
+  if (lane === "moving") {
+    const fix = await latestTelemetry(bundle.order.id, "PHONE_GPS").catch(() => null)
+    const place = fix ? (fix.data as GpsData).place_label : null
+    const age = fix ? relativeTo(fix.at.toISOString(), bundle.cr.now) : null
+    if (place) where = `${place.replace(/^(On the road|Stopped|Last app position) ?/, "")}${age && age.text !== "now" ? ` · ${age.text}` : ""}`.trim()
+  }
   const strip: ActionStripView = {
+    where,
     from: service ? `${service.from.name}, ${service.from.city}` : `${view.header.from.name}, ${view.header.from.city}`,
     to: service ? `${service.to.name}, ${service.to.city}` : `${view.header.to.name}, ${view.header.to.city}`,
     when, reference: bundle.order.reference,

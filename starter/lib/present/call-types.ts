@@ -79,6 +79,8 @@ export type OrderActions = {
 export type ActionStripView = {
   from: string
   to: string
+  /** Where the car is thought to be now (the driver app's last position), while it is on the road. */
+  where: string | null
   when: string | null
   reference: string
   actions: { label: string; who: string | null; purpose: string | null; agentMay: boolean; reason: string | null; href: string; cardUrl: string | null }[]
