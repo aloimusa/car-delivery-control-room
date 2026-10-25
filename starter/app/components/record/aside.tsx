@@ -1,3 +1,4 @@
+import { Fragment } from "react"
 "use client"
 
 import type { RecordView } from "@/lib/present/types"
@@ -13,45 +14,49 @@ export function FactsPanel({ view }: { view: RecordView }) {
   </section>
 }
 
+/** HIGH and URGENT read red, MEDIUM amber, the rest quiet: the same words the records use, as colours. */
+function severityTone(level: string): "danger" | "warn" | "neutral" {
+  const word = level.toUpperCase()
+  return word === "HIGH" || word === "URGENT" || word === "CRITICAL" ? "danger" : word === "MEDIUM" || word === "NORMAL" ? "warn" : "neutral"
+}
+
 export function WorkPanel({ view }: { view: RecordView }) {
   const { alerts, workItems, incidents } = view
   const count = alerts.length + workItems.length + incidents.length
   return <section className="detail-panel" id="work" aria-label="Alerts and work">
     <h3>Alerts and work <span className="count num">{count || ""}</span></h3>
     {count === 0 && <p className="aside-text">No alert, work item or incident recorded.</p>}
-    {incidents.map((incident) => <div className="aside-item" key={incident.id}>
-      <div className="aside-title"><Icon name="incident" size={14} className={`tone-${incident.tone}`} />{incident.kindLabel} <Chip tone={incident.tone}>{incident.statusLabel}</Chip></div>
-      {incident.facts.map((fact) => <p className="aside-text" key={fact.label}><b>{fact.label}:</b> {fact.value}{fact.hint ? ` (${fact.hint})` : ""}</p>)}
-      <p className="aside-meta">{incident.owner && <span>Owner {incident.owner}</span>}<span>Opened <When at={incident.openedAt} /></span>{incident.resolvedAt && <span>Resolved <When at={incident.resolvedAt} /></span>}</p>
+    {incidents.map((incident) => <div className={`aside-item work-item edge-${incident.tone}`} key={incident.id}>
+      <div className="aside-title"><Icon name="incident" size={14} className={`tone-${incident.tone}`} />{incident.kindLabel} <Chip tone={incident.tone} dot>{incident.statusLabel}</Chip><Chip tone="neutral">Incident</Chip>{incident.owner && <Chip tone="neutral">Owner {incident.owner}</Chip>}</div>
+      {incident.facts.length > 0 && <dl className="aside-facts">{incident.facts.map((fact) => <Fragment key={fact.label}><dt>{fact.label}</dt><dd>{fact.value}{fact.hint ? <small> · {fact.hint}</small> : null}</dd></Fragment>)}</dl>}
+      <dl className="aside-facts"><dt>Opened</dt><dd><When at={incident.openedAt} /></dd>{incident.resolvedAt && <><dt>Resolved</dt><dd><When at={incident.resolvedAt} /></dd></>}</dl>
     </div>)}
-    {alerts.map((alert) => <div className="aside-item" key={alert.id}>
-      <div className="aside-title"><Icon name="alert" size={14} className={`tone-${alert.tone}`} />{alert.signalLabel} <Chip tone={alert.tone}>{alert.statusLabel}</Chip></div>
+    {alerts.map((alert) => <div className={`aside-item work-item edge-${alert.tone}`} key={alert.id}>
+      <div className="aside-title"><Icon name="alert" size={14} className={`tone-${alert.tone}`} />{alert.signalLabel} <Chip tone={alert.tone} dot>{alert.statusLabel}</Chip><Chip tone={severityTone(alert.severity)}>{alert.severity.toLowerCase()} severity</Chip>{alert.owner && <Chip tone="neutral">Owner {alert.owner}</Chip>}{alert.evidenceCount > 0 && <Chip tone="neutral">{alert.evidenceCount} evidence link{alert.evidenceCount === 1 ? "" : "s"}</Chip>}</div>
       <p className="aside-text">{alert.summary}</p>
-      {alert.nextAction && <p className="aside-text"><b>Next:</b> {alert.nextAction}</p>}
-      {alert.acknowledgementReason && <p className="aside-text"><b>Acknowledged because:</b> {alert.acknowledgementReason}</p>}
-      {alert.resolutionReason && <p className="aside-text"><b>Resolution:</b> {alert.resolutionReason}</p>}
-      <p className="aside-meta">
-        <span>{alert.severity} severity</span>
-        <span>Raised <When at={alert.triggeredAt} /></span>
-        {alert.owner && <span>Owner {alert.owner}</span>}
-        {alert.acknowledgedAt && <span>Acknowledged <When at={alert.acknowledgedAt} /></span>}
-        {alert.resolvedAt && <span>Resolved <When at={alert.resolvedAt} /></span>}
-        {alert.evidenceCount > 0 && <span>{alert.evidenceCount} evidence link{alert.evidenceCount === 1 ? "" : "s"}</span>}
-      </p>
-      {alert.status === "ACKNOWLEDGED" && <p className="aside-meta">Acknowledged is not resolved.</p>}
+      {(alert.nextAction || alert.acknowledgementReason || alert.resolutionReason || alert.status === "ACKNOWLEDGED") && <div className="aside-state">
+        {alert.nextAction && <span><b>Next:</b> {alert.nextAction}</span>}
+        {alert.acknowledgementReason && <span><b>Acknowledged because:</b> {alert.acknowledgementReason}</span>}
+        {alert.resolutionReason && <span><b>Resolution:</b> {alert.resolutionReason}</span>}
+        {alert.status === "ACKNOWLEDGED" && <span><b>Note:</b> acknowledged is not resolved.</span>}
+      </div>}
+      <dl className="aside-facts">
+        <dt>Raised</dt><dd><When at={alert.triggeredAt} /></dd>
+        {alert.acknowledgedAt && <><dt>Acknowledged</dt><dd><When at={alert.acknowledgedAt} /></dd></>}
+        {alert.resolvedAt && <><dt>Resolved</dt><dd><When at={alert.resolvedAt} /></dd></>}
+      </dl>
     </div>)}
-    {workItems.map((item) => <div className="aside-item" key={item.id}>
-      <div className="aside-title"><Icon name="work" size={14} className={`tone-${item.tone}`} />{item.kindLabel} <Chip tone={item.tone}>{item.statusLabel}</Chip></div>
+    {workItems.map((item) => <div className={`aside-item work-item edge-${item.tone}`} key={item.id}>
+      <div className="aside-title"><Icon name="work" size={14} className={`tone-${item.tone}`} />{item.kindLabel} <Chip tone={item.tone} dot>{item.statusLabel}</Chip>{item.priority && <Chip tone={severityTone(item.priority)}>{item.priority.toLowerCase()} priority</Chip>}{item.owner && <Chip tone="neutral">Owner {item.owner}</Chip>}{item.sourceCount > 0 && <Chip tone="neutral">{item.sourceCount} source record{item.sourceCount === 1 ? "" : "s"}</Chip>}</div>
       <p className="aside-text">{item.summary}</p>
-      {item.nextAction && <p className="aside-text"><b>Next:</b> {item.nextAction}</p>}
-      {item.outcome && <p className="aside-text"><b>Outcome:</b> {item.outcome}</p>}
-      <p className="aside-meta">
-        {item.owner && <span>Owner {item.owner}</span>}
-        {item.priority && <span>{item.priority} priority</span>}
-        {item.dueAt && <span>Due <When at={item.dueAt} snapshotAt={view.snapshotAt} relative /></span>}
-        {item.closedAt && <span>Closed <When at={item.closedAt} /></span>}
-        {item.sourceCount > 0 && <span>{item.sourceCount} source record{item.sourceCount === 1 ? "" : "s"}</span>}
-      </p>
+      {(item.nextAction || item.outcome) && <div className="aside-state">
+        {item.nextAction && <span><b>Next:</b> {item.nextAction}</span>}
+        {item.outcome && <span><b>Outcome:</b> {item.outcome}</span>}
+      </div>}
+      <dl className="aside-facts">
+        {item.dueAt && <><dt>Due</dt><dd><When at={item.dueAt} snapshotAt={view.snapshotAt} relative /></dd></>}
+        {item.closedAt && <><dt>Closed</dt><dd><When at={item.closedAt} /></dd></>}
+      </dl>
     </div>)}
   </section>
 }

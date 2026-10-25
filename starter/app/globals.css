@@ -535,6 +535,14 @@ a.tile:hover { box-shadow: var(--shadow-card-hover); }
 .aside-facts dd.mono { font-size: 12px; }
 .aside-state { font-size: 12.5px; color: var(--brown); display: grid; gap: 1px; margin-top: 2px; }
 .aside-state b { font-weight: 500; color: var(--muted); }
+/* Alerts, work items and incidents: the item's tone on its left edge, the words of the record as pills. */
+.work-item { padding-left: 12px; border-left: 3px solid var(--hair); border-radius: 2px; }
+.work-item.edge-danger { border-left-color: var(--red); }
+.work-item.edge-warn { border-left-color: var(--amber, #d9a43a); }
+.work-item.edge-ok { border-left-color: var(--teal); }
+.work-item.edge-accent { border-left-color: var(--teal); }
+.work-item .aside-title .chip { font-size: 11px; }
+.aside-facts dd small { color: var(--subtle); }
 .api-link { font-size: 12.5px; color: var(--muted); }
 .api-link a { color: var(--muted); }
 details.more { margin-top: 6px; }
