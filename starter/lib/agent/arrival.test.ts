@@ -1,5 +1,6 @@
 // The gate refuses a card that says the driver arrived while its own evidence, or the latest driver-app report, still
 // counts kilometres remaining (D11). No database: the facts are a minimal fixture.
+import "dotenv/config"
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import type { OrderFacts } from "./context"
