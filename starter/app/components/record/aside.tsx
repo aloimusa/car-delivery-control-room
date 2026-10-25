@@ -111,29 +111,31 @@ export function TravelPanel({ view }: { view: RecordView }) {
     {count === 0 && <p className="aside-text">No booking or quote recorded.</p>}
     {reservations.map((reservation) => <div className="aside-item" key={reservation.id}>
       <div className="aside-title"><Icon name={kindIcon(reservation.kind)} size={14} />{reservation.kindLabel}{reservation.route ? `: ${reservation.route}` : ""} <Chip tone={reservation.tone}>{reservation.statusLabel}</Chip></div>
-      <p className="aside-meta">
+      <dl className="aside-facts">
         {reservation.kind === "HOTEL"
-          ? <span>Stay {fmtRange(reservation.departureAt, reservation.arrivalAt, null)}</span>
-          : <><span>Departs <When at={reservation.departureAt} /></span>{reservation.arrivalAt && <span>Arrives <When at={reservation.arrivalAt} /></span>}</>}
-        {reservation.checkInCutoffAt && <span>Check-in cutoff <When at={reservation.checkInCutoffAt} /></span>}
-        {reservation.driver && <span>{reservation.driver.name}</span>}
-        {reservation.reference && <span className="mono">{reservation.reference}</span>}
-      </p>
-      {reservation.checks.length > 0 && <p className="aside-text">{reservation.checks.join(" · ")}. A booking does not confirm travel.</p>}
+          ? <><dt>Stay</dt><dd>{fmtRange(reservation.departureAt, reservation.arrivalAt, null)}</dd></>
+          : <><dt>Departs</dt><dd><When at={reservation.departureAt} /></dd>{reservation.arrivalAt && <><dt>Arrives</dt><dd><When at={reservation.arrivalAt} /></dd></>}</>}
+        {reservation.checkInCutoffAt && <><dt>Check-in closes</dt><dd><When at={reservation.checkInCutoffAt} /></dd></>}
+        {reservation.driver && <><dt>Driver</dt><dd>{reservation.driver.name}</dd></>}
+        {reservation.reference && <><dt>Reference</dt><dd className="mono">{reservation.reference}</dd></>}
+      </dl>
+      {(reservation.checks.length > 0 || reservation.stateNote) && <div className="aside-state">
+        {reservation.checks.length > 0 && <span><b>Confirmed so far:</b> {reservation.checks.join(", ")}. A booking does not confirm travel.</span>}
+        {reservation.stateNote && <span><b>Recorded state:</b> {reservation.stateNote.replace(/^Recorded state: /, "")}</span>}
+      </div>}
       {reservation.amendment && <p className="aside-text tone-warn">Carrier notice: {reservation.amendment}</p>}
-      {reservation.stateNote && <p className="aside-text">{reservation.stateNote}</p>}
       {(reservation.replaces || reservation.replacedBy) && <p className="aside-meta">{reservation.replaces && <span>Rebooking after an earlier reservation</span>}{reservation.replacedBy && <span>Replaced by a later reservation</span>}</p>}
     </div>)}
     {options.length > 0 && <More label={`${options.length} quote${options.length === 1 ? "" : "s"} and capacity checks`}>
       <div>{options.map((option) => <div className="aside-item" key={option.id}>
         <div className="aside-title"><Icon name={kindIcon(option.kind)} size={14} />{option.kindLabel}{option.route ? `: ${option.route}` : ""} <Chip tone={option.tone}>{option.statusLabel}</Chip></div>
-        <p className="aside-meta">
-          <span>Departs <When at={option.departureAt} /></span>
-          {option.quote && <span>{option.quote}</span>}
-          {option.provider && <span>{option.provider}</span>}
-          <span>Checked <When at={option.checkedAt} /></span>
-        </p>
-        {option.note && <p className="aside-text">{option.note}. A quote is not a booking.</p>}
+        <dl className="aside-facts">
+          <dt>Departs</dt><dd><When at={option.departureAt} /></dd>
+          {option.quote && <><dt>Quote</dt><dd>{option.quote}</dd></>}
+          {option.provider && <><dt>Provider</dt><dd>{option.provider}</dd></>}
+          <dt>Checked</dt><dd><When at={option.checkedAt} /></dd>
+        </dl>
+        {option.note && <p className="aside-state"><span>{option.note}. A quote is not a booking.</span></p>}
       </div>)}</div>
     </More>}
     {confirmations.map((confirmation) => <div className="aside-item" key={confirmation.id}>

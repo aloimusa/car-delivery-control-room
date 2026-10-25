@@ -19,6 +19,8 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
   try {
     const records = await Promise.all(attachments.map(async (attachment) => ({
       ...attachment,
+      // A document's first page, rendered server-side; photos are their own preview.
+      previewUrl: attachment.content_type === "application/pdf" ? `/api/orders/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attachment.id)}/preview` : null,
       url: await getSignedUrl(client, new GetObjectCommand({
         Bucket: bucket,
         Key: attachmentKey(attachment),

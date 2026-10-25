@@ -35,3 +35,4 @@ out/
 
 # Claude Code agent worktrees
 .claude/worktrees/
+attachments/.previews/
