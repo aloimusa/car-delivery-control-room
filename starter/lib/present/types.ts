@@ -354,6 +354,8 @@ export type ThreadView = {
   startedAt: string | null
   updatedAt: string | null
   relatedOrders: OrderRef[]
+  /** The order this conversation is filed on, when it is not the order being read (the thread is shown here because it also concerns this order). */
+  filedOn: OrderRef | null
   follows: string | null
   messages: MessageView[]
 }

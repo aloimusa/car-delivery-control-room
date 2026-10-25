@@ -166,12 +166,13 @@ function ThreadRow({ thread, view, onChange }: { thread: ThreadView; view: Recor
         <div className="row-sub">
           {thread.channelLabel} · {count} {count === 1 ? "message" : "messages"}
           {thread.waitingOn && ` · waiting on ${thread.waitingOn}`}{thread.owner && ` · ${thread.owner}`}
+          {thread.filedOn && <> · filed on <OrderLink order={thread.filedOn} /></>}
           {thread.relatedOrders.length > 0 && <> · also <OrderLinks orders={thread.relatedOrders} /></>}
         </div>
         {last && !open && <div className="row-preview"><b>{last.author.name}:</b> {last.body}</div>}
       </button>
       {open && <ThreadMessages thread={thread} />}
-      {open && <Composer to={thread.counterparty?.name ?? null} channelLabel={thread.channelLabel}
+      {open && <Composer to={thread.counterparty?.name ?? null} channelLabel={thread.channelLabel} filedOn={thread.filedOn}
         suggest={(intent) => postJson<Draft>(`/api/threads/${encodeURIComponent(thread.id)}/suggest`, { orderId, intent })}
         send={(body, internal, language) => postJson(`/api/threads/${encodeURIComponent(thread.id)}/messages`, { body, internal, language }).then(() => undefined)}
         onSent={onChange} />}

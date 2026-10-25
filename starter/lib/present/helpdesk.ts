@@ -227,7 +227,11 @@ export async function updateInboxThread(threadId: string, input: { link?: unknow
 const SERVICE = process.env.CALL_SERVICE_URL ?? "http://127.0.0.1:8799"
 
 export type Suggestion = { stance: "ANSWER" | "ASK" | "HOLD" | "ESCALATE" | "IDENTIFY"; label: string; body: string; basis: string[]; caution: string | null }
-export type SuggestResult = { language: string; summary: string; suggestions: Suggestion[]; internalNote: string | null; model: string; costUsd: number | null; at: string }
+export type SuggestResult = {
+  language: string; summary: string; suggestions: Suggestion[]; internalNote: string | null; model: string; costUsd: number | null; at: string
+  /** The order whose dossier the drafts were read from (the thread's own order), and whether that differs from the page they were asked from. */
+  order?: { id: string; reference: string }; filedElsewhere?: boolean
+}
 
 type ThreadLike = Pick<ThreadView | InboxThreadView, "category" | "channel" | "counterparty" | "messages">
 

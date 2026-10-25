@@ -16,7 +16,7 @@ const STANCE: Record<Suggestion["stance"], { word: string; tone: string }> = {
  * The operator's composer: a reply to the other party or an internal note, with drafts from the dossier the operator
  * can take, edit and send. Ctrl+Enter sends. Nothing is sent by itself; a draft is a starting point, never a message.
  */
-export function Composer({ to, channelLabel, suggest, send, onSent, autoFocus = false, openingPrompt = false }: {
+export function Composer({ to, channelLabel, suggest, send, onSent, autoFocus = false, openingPrompt = false, filedOn = null }: {
   /** Who a reply goes to; null when the thread has no known counterparty. */
   to: string | null
   channelLabel: string
@@ -27,6 +27,8 @@ export function Composer({ to, channelLabel, suggest, send, onSent, autoFocus = 
   autoFocus?: boolean
   /** The composer opens a new conversation (words change: "Open" rather than "Send"). */
   openingPrompt?: boolean
+  /** The order this thread is filed on when it is not the page's order: drafts read that order's dossier, and the composer says so. */
+  filedOn?: { id: string; reference: string } | null
 }) {
   const [text, setText] = useState("")
   const [internal, setInternal] = useState(false)
@@ -83,8 +85,9 @@ export function Composer({ to, channelLabel, suggest, send, onSent, autoFocus = 
       <button type="button" role="tab" aria-selected={!internal} onClick={() => setInternal(false)}><Icon name="message" size={13} />{openingPrompt ? "Opening message" : `Reply${to ? ` to ${to}` : ""}`}<small>{channelLabel}</small></button>
       <button type="button" role="tab" aria-selected={internal} onClick={() => setInternal(true)}><Icon name="note" size={13} />Internal note<small>desk only</small></button>
     </div>
+    {(filedOn || draft?.filedElsewhere) && <p className="composer-filed"><Icon name="alert" size={12} />This conversation is filed on <b>{draft?.order?.reference ?? filedOn?.reference}</b>. Suggested replies read that order&apos;s dossier, not this page&apos;s.</p>}
     {draft && <div className="drafts" aria-label="Suggested replies">
-      <p className="drafts-summary"><Icon name="bot" size={13} /><span>{draft.summary}</span></p>
+      <p className="drafts-summary"><Icon name="bot" size={13} /><span>{draft.summary}{draft.order ? <small className="drafts-order"> · from {draft.order.reference}&apos;s dossier</small> : null}</span></p>
       <ul className="drafts-list">
         {draft.suggestions.map((suggestion, index) => <li key={index} className="draft">
           <div className="draft-head"><span className={`chip tone-${STANCE[suggestion.stance].tone}`}>{STANCE[suggestion.stance].word}</span><b>{suggestion.label}</b></div>
@@ -102,7 +105,7 @@ export function Composer({ to, channelLabel, suggest, send, onSent, autoFocus = 
       placeholder={internal ? "What the desk should know about this thread. The other party never sees this." : openingPrompt ? "Why the desk is writing, and what you need from them." : `Write to ${to ?? "them"}, or ask for a suggested reply first.`}
       aria-label={internal ? "Internal note" : "Reply"} disabled={sending} />
     <div className="composer-foot">
-      <button type="button" className="btn" onClick={() => void askDrafts()} disabled={drafting || sending} title="Replies suggested from this order's dossier and the thread. You pick, edit and send.">
+      <button type="button" className="btn" onClick={() => void askDrafts()} disabled={drafting || sending} title={`Replies suggested from ${filedOn ? `${filedOn.reference}'s` : "this order's"} dossier and the thread. You pick, edit and send.`}>
         <Icon name="bot" size={14} />{drafting ? "Reading the dossier…" : draft ? "Other suggestions" : "Suggested reply"}
       </button>
       <span className="composer-hint">{error ? <span className="composer-error" role="alert">{error}</span> : sent ? <span className="composer-sent"><Icon name="check" size={12} />{sent}</span> : "Ctrl+Enter sends"}</span>

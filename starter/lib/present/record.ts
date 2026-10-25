@@ -335,7 +335,9 @@ function threadViews(bundle: Bundle): ThreadView[] {
       status: thread.status, statusLabel: label(thread.status), tone: thread.status === "OPEN" ? "accent" : "neutral",
       counterparty, waitingOn: waitingOn ? labelIn(waitingOn) : null, owner: dir.title(d.owner),
       nextCheckAt: str(d.next_check_at), startedAt: str(d.started_at), updatedAt: thread.updatedAt,
-      relatedOrders: strings(d.related_order_ids).map((id) => orderRef(bundle, id)),
+      // "also" names the other orders only; the order being read is never "also".
+      relatedOrders: strings(d.related_order_ids).filter((id) => id !== bundle.order.id).map((id) => orderRef(bundle, id)),
+      filedOn: thread.orderId !== bundle.order.id ? orderRef(bundle, thread.orderId) : null,
       follows: str(d.follows_conversation_id),
       messages: bundle.messages.filter((message) => message.conversationId === thread.id).map((message) => messageView(bundle, message)),
     }
