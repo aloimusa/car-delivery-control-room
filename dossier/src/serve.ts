@@ -194,7 +194,10 @@ createServer(async (req, res) => {
       void (async () => {
         try {
           const r = await runLlmCall(d, persona, purpose.data, at); storeCall(r.record)
-          job.call = r.record; job.note = { costUsd: r.costUsd, briefBy: r.briefBy, twist: twist.data }; job.review = reviewCall(r.record); job.status = "done"
+          // The same voices as /calls/run: a call placed this way sounds like any other simulated one.
+          const spoken = await renderCallAudio(r.record, audioDir); if (spoken.rendered) storeCall(spoken.call)
+          job.call = spoken.call; job.note = { costUsd: r.costUsd + spoken.costUsd, briefBy: r.briefBy, twist: twist.data, ...(ttsEnabled() ? { audio: { rendered: spoken.rendered, costUsd: spoken.costUsd, failed: spoken.failed } } : {}) }
+          job.review = reviewCall(spoken.call); job.status = "done"
         } catch (e) { job.status = "failed"; job.error = (e as Error).message.slice(0, 600) }
       })()
       return json(res, 202, { jobId: job.id, personaId: persona.id, purpose: purpose.data, twist: twist.data })
