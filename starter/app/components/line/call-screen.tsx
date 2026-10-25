@@ -279,7 +279,10 @@ export function CallScreen({ target, onClose, autoStart = false, onResult }: {
         const current = call.current
         if (!current?.ws || current.ws.readyState !== 1 || !flags.current.live) return
         const modelSpeaking = current.nextT > current.ctx.currentTime
-        current.ws.send(flags.current.muted || flags.current.auto ? SILENCE : event.data as ArrayBuffer)
+        // While the model answers for the party, its own frames carry the timeline: the microphone's frames would
+        // interleave with them and the line would hear chopped speech. Between its lines, silence keeps the clock.
+        if (flags.current.auto) { if (!flags.current.speaking) current.ws.send(SILENCE); return }
+        current.ws.send(flags.current.muted ? SILENCE : event.data as ArrayBuffer)
       }
       call.current.heartbeat = window.setInterval(() => {
         const current = call.current
