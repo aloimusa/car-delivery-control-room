@@ -172,12 +172,34 @@ export function CallScreen({ target, onClose, autoStart = false, onResult }: {
     setStatus("Fetching the phone's record of the call…")
     // The phone finalises the call (audio and transcript) shortly after hang-up.
     let record: { started?: number; ended?: number | null; duration?: number; transcript?: Line[] } | null = null
-    for (let attempt = 0; attempt < 20; attempt++) {
+    // Save path (D5): the phone marks the call `ended` before its last transcript line is committed, so a call hung up
+    // right after the last caption lost that turn. The final captions on screen are the yardstick: keep polling (a
+    // bounded 4 s more) until the phone's transcript holds every one of them, and whatever is still missing after
+    // that is appended from the captions, so the saved transcript never has less than what was shown.
+    const spoken = lines.current.items.filter((item) => item.final && item.text.trim())
+    const norm = (text: string) => text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim()
+    const holdsAll = (lines: Line[] | undefined) => {
+      const byRole = (role: string) => norm((lines ?? []).filter((line) => (line.role === "model") === (role === "model")).map((line) => line.text).join(" "))
+      const joined = { model: byRole("model"), user: byRole("user") }
+      return spoken.every((item) => joined[item.role].includes(norm(item.text)))
+    }
+    for (let attempt = 0; attempt < 30; attempt++) {
       try {
         const response = await fetch(`${LINE}/calls/${encodeURIComponent(current.id)}`, { cache: "no-store" })
-        if (response.ok) { record = await response.json(); if (record?.ended) break }
+        if (response.ok) { record = await response.json(); if (record?.ended && (holdsAll(record.transcript) || attempt >= 10)) break }
       } catch { /* retry */ }
       await new Promise((resolve) => setTimeout(resolve, 400))
+    }
+    if (record && !holdsAll(record.transcript)) {
+      const have = record.transcript ?? []
+      const byRole = (role: string) => norm(have.filter((line) => (line.role === "model") === (role === "model")).map((line) => line.text).join(" "))
+      const joined = { model: byRole("model"), user: byRole("user") }
+      const started = record.started ?? (startedAt != null ? startedAt / 1000 : null)
+      // The phone's lines carry seconds from the call start; a caption spoken for the model-played party carries epoch seconds.
+      const rel = (t: number) => t > 1e9 ? (started != null ? Math.max(0, t - started) : (have.at(-1)?.t ?? 0) + 1) : t
+      const missing = spoken.filter((item) => !joined[item.role].includes(norm(item.text)))
+        .map((item): Line => ({ t: rel(item.t), role: item.role, text: item.text.trim() }))
+      record = { ...record, transcript: [...have, ...missing].sort((a, b) => a.t - b.t) }
     }
     setTranscript(record?.transcript ?? [])
     setPhase("ended")
