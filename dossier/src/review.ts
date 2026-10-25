@@ -39,6 +39,20 @@ function numbersIn(text: string): string[] {
   return [...out]
 }
 
+/** The value of a number as the review sees it ("1039", "thousand", "two hundred"); null when it is not one number. */
+function numberValue(n: string): number | null {
+  if (/^\d+(\.\d+)?$/.test(n)) return Number(n)
+  const small: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60, seventy: 70, eighty: 80, ninety: 90 }
+  let total = 0, current = 0
+  for (const w of n.toLowerCase().split(/[- ]/)) {
+    if (w in small) current += small[w]!
+    else if (w === "hundred") current = (current || 1) * 100
+    else if (w === "thousand") { total += (current || 1) * 1000; current = 0 }
+    else return null
+  }
+  return total + current
+}
+
 const HOUR_WORDS = ["twelve", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven"]
 const MINUTE_WORDS: Record<string, number> = { quarter: 15, half: 30, five: 5, ten: 10, twenty: 20, "twenty-five": 25, "twenty five": 25, one: 1, two: 2, three: 3, four: 4, six: 6, seven: 7, eight: 8, nine: 9, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19, "twenty-one": 21, "twenty-two": 22, "twenty-three": 23, "twenty-four": 24, "twenty-six": 26, "twenty-seven": 27, "twenty-eight": 28, "twenty-nine": 29 }
 const hourOf = (h: string) => (/^\d+$/.test(h) ? Number(h) % 12 : HOUR_WORDS.indexOf(h.toLowerCase()))
@@ -106,6 +120,10 @@ export function reviewCall(c: CallRecord): CallReview {
       if (/^(one|two|three|four|five|six|seven|eight|nine|ten)$/.test(n) && !/\d/.test(n) && !/(o'clock|in the (morning|afternoon|evening)|october|november)/i.test(t.text)) continue   // "one or two things": not a fact
       if (/^(fifteen minutes|half|quarter)$/.test(n) && !/\b(half|quarter) (past|to)\b/i.test(t.text)) continue   // "half an hour", "a quarter of the way": not a clock time
       if (n === "112" || n === "one one two") continue   // the emergency number the line is told to give
+      // "over a thousand kilometres" for the 1039 the callee said: a rounded number near one on the card is a paraphrase
+      if (new RegExp(`\\b(over|about|around|nearly|almost|under|roughly|some|just over|just under) (a |an )?${n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(t.text)) {
+        const v = numberValue(n); if (v !== null && [...cardNumbers].some((c) => { const cv = numberValue(c); return cv !== null && cv >= 20 && Math.abs(cv - v) / Math.max(cv, v) <= 0.15 })) continue
+      }
       unsupportedNumbers.push({ turnSeq: t.seq, value: n, text: t.text })
     }
   }
