@@ -58,7 +58,7 @@ real agent. The models, all through OpenRouter, are set in `starter/.env.example
 | Job | Default | Why |
 |---|---|---|
 | The agent (`AGENT_MODEL`) | `deepseek/deepseek-v4-pro` | Every traced run and the business case use it; `anthropic/claude-sonnet-5.5` is stronger at about ten times the cost |
-| Safety screen (`DRIVABILITY_MODEL`) | `deepseek/deepseek-v4-flash` | One word per message, reasoning off, fast |
+| Safety screen (`DRIVABILITY_MODEL`) | `anthropic/claude-haiku-5.5` | One word per message, reasoning off, fast |
 | Photo reader (`VISION_MODEL`), simulated driver (`SIM_DRIVER_MODEL`) | `anthropic/claude-haiku-5.5` | Reads images; plays the driver in simulations |
 
 Without a key, the app remains usable and agent cases hand over to a person with
