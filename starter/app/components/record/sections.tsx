@@ -11,6 +11,7 @@ import { Icon } from "../icons"
 import { initials, personColor } from "@/lib/present/color"
 import { ActorName, Chip, Empty, OrderLink, OrderLinks, Range, SectionHead, When } from "../ui"
 import { OrderFiles } from "./files"
+import { counted } from "@/lib/present/labels"
 import { Composer, postJson, type Draft } from "../helpdesk/composer"
 import { NewConversation } from "../helpdesk/new-conversation"
 
@@ -44,7 +45,7 @@ export function AttentionPanel({ view, belowCases = false }: { view: RecordView;
         <div className={`panel-row-title tone-${tone}`}>{item.title}</div>
         {item.detail && <div className="panel-row-detail">{item.detail}</div>}
       </div>
-      <div className="panel-row-side">{item.owner ?? "No owner"}{item.at && item.atLabel ? <><br />{capitalise(item.atLabel)} <When at={item.at} snapshotAt={view.snapshotAt} relative withZone={false} /></> : null}</div>
+      <div className="panel-row-side">{item.owner ?? "No owner"}{item.at && item.atLabel ? <><br />{capitalise(item.atLabel)} <When at={item.at} snapshotAt={view.simNow} relative withZone={false} /></> : null}</div>
     </li>
   }
   return <div className="panel" id="attention">
@@ -94,7 +95,7 @@ function RouteStop({ step, leg, view }: { step: JourneyStep; leg: JourneyLeg | n
       <div className="route-name">{name}</div>
       <div className="route-city">{step.place.city}{step.place.country ? `, ${step.place.country}` : ""}{step.site ? "" : " · no site profile"}</div>
       {step.recorded
-        ? <div className="route-when tone-ok">{step.recorded.label} <When at={step.recorded.at} /></div>
+        ? <div className="route-when tone-ok">{step.recorded.label} <When at={step.recorded.at} zone={step.place.zone ?? view.header.to.zone ?? view.header.from.zone} /></div>
         : slot ? <div className="route-when"><span className="route-when-label">{slot.label}</span> <Range start={slot.start} end={slot.end} zone={slot.zone} /></div>
         : <div className="route-when muted">No slot selected</div>}
       {(step.contact || step.access) && !step.recorded && <div className="route-state">
@@ -109,7 +110,7 @@ function RouteStop({ step, leg, view }: { step: JourneyStep; leg: JourneyLeg | n
 
 function RouteLeg({ leg, view }: { leg: JourneyLeg; view: RecordView }) {
   const assignment = leg.assignment
-  const age = leg.tracking?.receivedAt ? relativeTo(leg.tracking.receivedAt, view.snapshotAt) : null
+  const age = leg.tracking?.receivedAt ? relativeTo(leg.tracking.receivedAt, view.simNow) : null
   return <div className={`route-leg tone-${leg.tone}`}>
     <span className="route-leg-line"><Icon name="car" size={16} /></span>
     {leg.distanceKm != null && <b>{leg.distanceKm} km</b>}
@@ -221,7 +222,7 @@ export function EvidenceSection({ view }: { view: RecordView }) {
     <SectionHead title="Evidence" count={total} />
     {total === 0 && <Empty>No proof or document record yet.</Empty>}
     {total > 0 && <div className="chips">
-      {proofs.map((proof) => <Chip key={proof.id} tone={proof.tone} dot>{proof.kindLabel} · {proof.statusLabel.toLowerCase()}{proof.fileCount ? ` · ${proof.fileCount} files` : ""}</Chip>)}
+      {proofs.map((proof) => <Chip key={proof.id} tone={proof.tone} dot>{proof.kindLabel} · {proof.statusLabel.toLowerCase()}{proof.fileCount ? ` · ${counted(proof.fileCount, "file")}` : ""}</Chip>)}
       {documents.map((document) => <Chip key={document.id} tone={document.tone} dot>{document.kindLabel}{document.medium ? ` (${document.medium})` : ""} · {document.statusLabel.toLowerCase()}</Chip>)}
       {custody.assets.map((asset) => <Chip key={asset.id} tone={asset.nextAction ? "warn" : "neutral"} dot>{asset.kindLabel} · holder {asset.holder}</Chip>)}
     </div>}
@@ -381,7 +382,7 @@ function StepView({ step, live, last }: { step: JourneyStep; live: boolean; last
 
       {hasEvidence && <div className="step-group">
         <h5>Recorded and claimed</h5>
-        {step.proofs.length > 0 && <div className="step-proofs">{step.proofs.map((proof) => <Chip key={proof.id} tone={proof.tone} dot>{proof.kindLabel} · {proof.statusLabel.toLowerCase()}{proof.fileCount ? ` · ${proof.fileCount} files` : ""}</Chip>)}</div>}
+        {step.proofs.length > 0 && <div className="step-proofs">{step.proofs.map((proof) => <Chip key={proof.id} tone={proof.tone} dot>{proof.kindLabel} · {proof.statusLabel.toLowerCase()}{proof.fileCount ? ` · ${counted(proof.fileCount, "file")}` : ""}</Chip>)}</div>}
         {step.claims.length > 0 && <div className="step-notes">{step.claims.map((claim) => <p key={claim.id}><Chip tone={claim.tone}>{claim.statusLabel}</Chip> Claim about the {claim.field.toLowerCase()}: {claim.claim}{claim.source ? ` (${claim.source}${claim.confidence ? `, ${claim.confidence}` : ""})` : ""}</p>)}</div>}
         {step.notes.length > 0 && <div className="step-notes">{step.notes.map((note) => <p key={note}>{note}</p>)}</div>}
       </div>}
@@ -392,7 +393,7 @@ function StepView({ step, live, last }: { step: JourneyStep; live: boolean; last
 function LegView({ leg, view }: { leg: JourneyLeg; view: RecordView }) {
   const assignment = leg.assignment
   const tracking = leg.tracking
-  const age = tracking?.receivedAt ? relativeTo(tracking.receivedAt, view.snapshotAt) : null
+  const age = tracking?.receivedAt ? relativeTo(tracking.receivedAt, view.simNow) : null
   return <div className="leg">
     <span className="leg-marker"><Icon name="car" size={15} /></span>
     <div className="leg-body">
@@ -407,7 +408,7 @@ function LegView({ leg, view }: { leg: JourneyLeg; view: RecordView }) {
       {assignment && assignment.steps.length > 0 && <div className="leg-steps">{assignment.steps.map((step) => <span key={step.id}>
         <Icon name={step.status === "COMPLETED" ? "check" : "chevron"} size={12} className={step.status === "COMPLETED" ? "tone-ok" : undefined} /> {step.title} · <span className={`tone-${step.tone}`}>{step.statusLabel.toLowerCase()}</span>{step.scheduledStart ? ` · ${fmtDateTime(step.scheduledStart)}` : ""}{step.note ? ` · ${step.note}` : ""}
       </span>)}</div>}
-      {tracking && <p className="leg-track">Driver app: <b>ETA {fmtDateTime(tracking.eta)}</b>{tracking.remainingKm != null ? ` · ${tracking.remainingKm} km remaining` : ""}{tracking.progress != null ? ` · ${Math.round(tracking.progress * 100)}% of the leg` : ""} · {tracking.qualityLabel} signal{age ? `, received ${age.text}` : ""}. Unverified; no map position in this packet.</p>}
+      {tracking && <p className="leg-track">Driver app: <b>ETA {fmtDateTime(tracking.eta)}</b>{tracking.remainingKm != null ? ` · ${tracking.remainingKm} km remaining` : ""}{tracking.progress != null ? ` · ${Math.round(tracking.progress * 100)}% of the leg at that report` : ""} · {tracking.qualityLabel} signal{age ? `, received ${age.text}` : ""}. Unverified; no map position in this packet.</p>}
       {leg.inference && <p className="leg-track">Monitor inference: {leg.inference.note ?? `ETA ${fmtDateTime(leg.inference.eta)}`}</p>}
     </div>
   </div>
@@ -418,11 +419,11 @@ export function EvidenceDetails({ view }: { view: RecordView }) {
   return <div>
     {proofs.length > 0 && <><p className="sub">Proofs</p><div className="rows">{proofs.map((proof) => <div className="row" key={proof.id}>
       <div className="row-main"><div className="row-title">{proof.kindLabel} <Chip tone={proof.tone}>{proof.statusLabel}</Chip></div>
-        <div className="row-sub">{proof.pointLabel ? `${proof.pointLabel} · ` : ""}{proof.required ? "required" : "optional"}{proof.fileCount ? ` · ${proof.fileCount} files` : " · no files"}{proof.submittedAt ? ` · submitted ${fmtDateTime(proof.submittedAt)}` : " · nothing submitted"}{proof.reviewedAt ? ` · reviewed ${fmtDateTime(proof.reviewedAt)}` : ""}{proof.note ? ` · ${proof.note}` : ""}</div></div>
+        <div className="row-sub">{proof.pointLabel ? `${proof.pointLabel} · ` : ""}{proof.required ? "required" : "optional"}{proof.fileCount ? ` · ${counted(proof.fileCount, "file")}` : " · no files"}{proof.submittedAt ? ` · submitted ${fmtDateTime(proof.submittedAt)}` : " · nothing submitted"}{proof.reviewedAt ? ` · reviewed ${fmtDateTime(proof.reviewedAt)}` : ""}{proof.note ? ` · ${proof.note}` : ""}</div></div>
     </div>)}</div></>}
     {documents.length > 0 && <><p className="sub">Documents</p><div className="rows">{documents.map((document) => <div className="row" key={document.id}>
       <div className="row-main"><div className="row-title">{document.kindLabel}{document.medium ? ` (${document.medium})` : ""} <Chip tone={document.tone}>{document.statusLabel}</Chip></div>
-        <div className="row-sub">{document.required ? "required" : "optional"}{document.signatureScope ? ` · signatures: ${document.signatureScope}` : ""}{document.fileCount ? ` · ${document.fileCount} files` : " · no file"}{document.updatedAt ? ` · updated ${fmtDateTime(document.updatedAt)}` : ""}{document.note ? ` · ${document.note}` : ""}</div></div>
+        <div className="row-sub">{document.required ? "required" : "optional"}{document.signatureScope ? ` · signatures: ${document.signatureScope}` : ""}{document.fileCount ? ` · ${counted(document.fileCount, "file")}` : " · no file"}{document.updatedAt ? ` · updated ${fmtDateTime(document.updatedAt)}` : ""}{document.note ? ` · ${document.note}` : ""}</div></div>
     </div>)}</div></>}
     {custody.assets.length > 0 && <><p className="sub">Keys and papers</p><div className="rows">{custody.assets.map((asset) => <div className="row" key={asset.id}>
       <div className="row-main"><div className="row-title">{asset.label}</div>

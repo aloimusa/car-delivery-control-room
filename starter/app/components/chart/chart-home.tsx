@@ -11,6 +11,7 @@ import { recall, remember } from "../role-memory"
 import { tickCases } from "../live-refresh"
 import { Icon } from "../icons"
 import { Dossier } from "./dossier"
+import { zoneName } from "@/lib/present/time"
 import { clockOf, dayOf } from "./format"
 
 // Esri's canvas basemaps need no key (CARTO watermarks every tile without one,
@@ -125,6 +126,8 @@ export function ChartHome({ initial }: { initial: ChartView }) {
   const [zoom, setZoom] = useState(5)
   const [theme, setTheme] = useState<ChartTheme>("dark")
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  // The open panel's local zone: the footer clock reads in it, named, so one screen does not mix UTC with local times.
+  const [panelZone, setPanelZone] = useState<string | null>(null)
   const [hoverId, setHoverId] = useState<string | null>(null)
   const [, setTick] = useState(0)
   const [offline, setOffline] = useState(false)
@@ -517,13 +520,13 @@ export function ChartHome({ initial }: { initial: ChartView }) {
 
       {selected && (isCrowd(selected.orderId)
         ? <CrowdCard key={selected.orderId} node={selected} onClose={() => setSelectedId(null)} />
-        : <Dossier key={selected.orderId} node={selected} onClose={() => setSelectedId(null)} />)}
+        : <Dossier key={selected.orderId} node={selected} onClose={() => { setSelectedId(null); setPanelZone(null) }} onZone={setPanelZone} />)}
       {crowd && <div className="crowd-banner" role="status"><b>400 orders.</b> 300 of them are simulated for scale: not in the dataset, no pages, no cases, no calls. Click one to see what a node carries.</div>}
 
       <div className="chart-foot">
       <div className="chart-strip" aria-label="Fleet at a glance">
         <span className="strip-clock" title="The simulated clock: the dataset snapshot plus the time since the app started">
-          {dayOf(simNow)} <b className="num">{clockOf(simNow, true)}</b> UTC, simulated
+          {dayOf(simNow, panelZone)} <b className="num">{clockOf(simNow, true, panelZone)}</b> {panelZone ? zoneName(new Date(simNow), panelZone) : "UTC"}, simulated
         </span>
         <span className="strip-counts">
           <span><b className="num">{view.counts.moving + extra.moving}</b> moving</span>

@@ -18,7 +18,7 @@ const KIND_ICON: Record<DossierItem["kind"], string> = {
 }
 
 /** The operator's view of one delivery: state, the one thing that needs a person, the journey, what to watch, what people last did. */
-export function Dossier({ node, onClose }: { node: ChartNode; onClose: () => void }) {
+export function Dossier({ node, onClose, onZone }: { node: ChartNode; onClose: () => void; onZone?: (zone: string | null) => void }) {
   const [view, setView] = useState<DossierView | null>(null)
   const [error, setError] = useState(false)
 
@@ -30,7 +30,7 @@ export function Dossier({ node, onClose }: { node: ChartNode; onClose: () => voi
         const response = await fetch(`/api/chart/order/${encodeURIComponent(node.orderId)}`, { cache: "no-store" })
         if (!response.ok) throw new Error(String(response.status))
         const next = (await response.json()) as DossierView
-        if (!stopped) { setView(next); setError(false) }
+        if (!stopped) { setView(next); setError(false); onZone?.(next.zone ?? null) }
       } catch {
         if (!stopped) setError(true)
       }

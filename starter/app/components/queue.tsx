@@ -77,7 +77,7 @@ export function QueuePage({ queue }: { queue: QueueView }) {
       <div>
         <h1>Needs you</h1>
         <p className="q-sub">
-          <b>{queue.decide.length}</b> need{queue.decide.length === 1 ? "s" : ""} your decision{fromAgent ? <> ({fromAgent} with the agent&apos;s card ready)</> : null} · <b>{queue.agentWorking.length}</b> with the agent · <b>{queue.watch.length}</b> worth a look · <b>{queue.waiting.length}</b> waiting
+          <b>{fromAgent}</b> decision card{fromAgent === 1 ? "" : "s"} from the agent · <b>{queue.decide.length - fromAgent}</b> record{queue.decide.length - fromAgent === 1 ? "" : "s"} waiting on a person · <b>{queue.agentWorking.length}</b> with the agent · <b>{queue.watch.length}</b> worth a look · <b>{queue.waiting.length}</b> waiting
         </p>
       </div>
       <label className="search">

@@ -4,12 +4,16 @@ const DAY = new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric",
 const CLOCK = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "UTC" })
 const CLOCK_S = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false, timeZone: "UTC" })
 
-export function dayOf(iso: string | null): string {
-  return iso ? DAY.format(new Date(iso)) : ""
+/** "Tue", in UTC or in a zone. */
+export function dayOf(iso: string | null, zone: string | null = null): string {
+  if (!iso) return ""
+  return zone ? new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: zone }).format(new Date(iso)) : DAY.format(new Date(iso))
 }
 
-export function clockOf(iso: string | null, seconds = false): string {
-  return iso ? (seconds ? CLOCK_S : CLOCK).format(new Date(iso)) : ""
+export function clockOf(iso: string | null, seconds = false, zone: string | null = null): string {
+  if (!iso) return ""
+  if (zone) return new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", ...(seconds ? { second: "2-digit" } : {}), hour12: false, timeZone: zone }).format(new Date(iso))
+  return (seconds ? CLOCK_S : CLOCK).format(new Date(iso))
 }
 
 /** "in 3 h", "2 d ago", against the simulated clock. */

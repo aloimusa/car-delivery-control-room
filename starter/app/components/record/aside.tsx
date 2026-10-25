@@ -55,7 +55,7 @@ export function WorkPanel({ view }: { view: RecordView }) {
         {item.outcome && <span><b>Outcome:</b> {item.outcome}</span>}
       </div>}
       <dl className="aside-facts">
-        {item.dueAt && <><dt>Due</dt><dd><When at={item.dueAt} snapshotAt={view.snapshotAt} relative /></dd></>}
+        {item.dueAt && <><dt>Due</dt><dd><When at={item.dueAt} snapshotAt={view.simNow} relative /></dd></>}
         {item.closedAt && <><dt>Closed</dt><dd><When at={item.closedAt} /></dd></>}
       </dl>
     </div>)}
@@ -94,7 +94,7 @@ export function MarketPanel({ view }: { view: RecordView }) {
         {offer.publishedAt && <span>Published <When at={offer.publishedAt} /></span>}
         {offer.acceptedAt && <span>Accepted <When at={offer.acceptedAt} /></span>}
         {offer.withdrawnAt && <span>Withdrawn <When at={offer.withdrawnAt} /></span>}
-        {offer.expiresAt && offer.status === "PUBLISHED" && <span>Booking cutoff <When at={offer.expiresAt} snapshotAt={view.snapshotAt} relative /></span>}
+        {offer.expiresAt && offer.status === "PUBLISHED" && <span>Booking cutoff <When at={offer.expiresAt} snapshotAt={view.simNow} relative /></span>}
       </p>
       {offer.pricingNote && <p className="aside-text">{offer.pricingNote}</p>}
       {offer.assumptions.length > 0 && <p className="aside-text">{offer.assumptions.join(" · ")}</p>}

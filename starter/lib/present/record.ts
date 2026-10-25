@@ -9,7 +9,7 @@ import {
 } from "./bundle"
 import { CASE_KIND_LABELS, callTranscriptViews, caseViews, mergedTimeline, promiseView, telemetryStrip } from "./cases"
 import { describeEvent } from "./events"
-import { humanize, label, labelIn, laneLabel } from "./labels"
+import { humanize, label, labelIn, laneLabel, plainCodes } from "./labels"
 import { dayKey, fmtDateTime, fmtDay, fmtDayHeading, fmtMoney, fmtRange, fmtWeekday, isBefore, relativeTo } from "./time"
 import type {
   AccessView, Actor, AlertView, AssignmentView, AttentionItem, ClaimView, StoryFact, ContactView, CustodyView, DocumentView, ExpenseView, Fact,
@@ -181,7 +181,7 @@ function assignmentView(bundle: Bundle, row: RelatedRow): AssignmentView {
         id: step.id, sequence: num(step.details.sequence) ?? 0, title: str(step.details.title) ?? label(str(step.details.kind)),
         kind: str(step.details.kind) ?? "STEP", kindLabel: label(str(step.details.kind)), status: stepStatus, statusLabel: label(stepStatus),
         tone: toneOf(STEP_TONE, stepStatus), scheduledStart: str(step.details.scheduled_start_at), scheduledEnd: str(step.details.scheduled_end_at),
-        note: str(step.details.note), from: str(step.details.from_city), to: str(step.details.to_city),
+        note: plainCodes(str(step.details.note)) || null, from: str(step.details.from_city), to: str(step.details.to_city),
       }
     })
   return {
@@ -777,7 +777,8 @@ function laneStory(bundle: Bundle, keyDates: KeyDate[], assignments: AssignmentV
   const delivered = date("delivered")
   const active = assignments.find((item) => item.status === "IN_PROGRESS") ?? assignments.find((item) => item.status === "ASSIGNED") ?? null
   const driver = active?.driver.name ?? null
-  const rel = (iso: string | null | undefined) => relativeTo(iso, snapshotAt)?.text ?? null
+  // Ages run from the simulated clock, not the dataset snapshot: "2 h ago" means two simulated hours before now.
+  const rel = (iso: string | null | undefined) => relativeTo(iso, bundle.cr.now)?.text ?? null
   const range = (item: KeyDate | null) => item ? fmtRange(item.start, item.end, item.zone) : null
   const intro = `${bundle.customer.name} ordered it on ${fmtDay(order.createdAt)} for ${from.city} to ${to.city}${order.routeKind === "IMPORT" ? ", an import" : ""}.`
   const fact = (label: string, value: string | null, note: string | null = null, tone: Tone = "neutral"): StoryFact[] => value ? [{ label, value, note, tone }] : []
@@ -906,7 +907,7 @@ function buildTiles(bundle: Bundle, keyDates: KeyDate[], assignments: Assignment
     tiles.push({ label: "ETA from the driver app", value: fmtDateTime(eta.start, eta.zone), hint: eta.note?.replace(/^stale signal received /, "stale, received ") ?? null, tone: eta.tone })
   } else {
     tiles.push(offer ? {
-      label: "Driver fee", value: offer.fee ?? "No fee", hint: `${offer.statusLabel.toLowerCase()} offer${offer.publishedAt ? `, published ${relativeTo(offer.publishedAt, snapshotAt)?.text ?? ""}` : ""}`,
+      label: "Driver fee", value: offer.fee ?? "No fee", hint: `${offer.statusLabel.toLowerCase()} offer${offer.publishedAt ? `, published ${relativeTo(offer.publishedAt, bundle.cr.now)?.text ?? ""}` : ""}`,
       tone: offer.status === "PUBLISHED" ? "accent" : "neutral",
     } : { label: "Driver fee", value: "No offer yet", hint: null, tone: "neutral" })
   }

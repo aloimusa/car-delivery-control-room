@@ -149,7 +149,8 @@ export function deriveKeyDates(bundle: Bundle): { keyDates: KeyDate[]; decisive:
   const { pickedUpAt, deliveredAt } = milestones(bundle)
   const { direct } = latestTracking(bundle)
   const eta = currentEta(bundle)
-  const rel = (iso: string | null) => relativeTo(iso, snapshotAt)?.text ?? null
+  // Ages run from the simulated clock; the snapshot only says what is already past in the dataset.
+  const rel = (iso: string | null) => relativeTo(iso, bundle.cr.now)?.text ?? null
   const dates: Partial<Record<KeyDate["key"], KeyDate>> = {}
 
   dates.created = keyDate("created", "Order created", bundle.order.createdAt, null, null, null, "neutral", rel(bundle.order.createdAt))

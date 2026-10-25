@@ -14,7 +14,7 @@ import { fleetCar } from "@/lib/sim/fleet"
 import { polylineKm, type LatLng } from "@/lib/sim/geo"
 import { telemetryStrip } from "./cases"
 import { callsFor, serviceDossier, strengthIndex } from "./call-service"
-import { readToolArgument, slotLabel, slotValue, type CallRecord } from "./call-types"
+import { readToolArgument, slotLabel, slotValue, type CallRecord, dedupeCalls } from "./call-types"
 import { deriveKeyDates, latestTracking, milestones } from "./attention"
 import { type Bundle, rows, str } from "./bundle"
 import { label, labelIn } from "./labels"
@@ -74,9 +74,11 @@ export async function buildDossier(bundle: Bundle): Promise<DossierView> {
   const { pickedUpAt, deliveredAt } = milestones(bundle)
   const { keyDates } = deriveKeyDates(bundle)
   // The robo-call service runs beside the app; without it the dossier still renders.
-  const [car, robo, typed] = await Promise.all([
+  const [car, roboAll, typed] = await Promise.all([
     fleetCar(bundle.order.id).catch(() => null), callsFor(bundle.order.reference), serviceDossier(bundle.order.reference),
   ])
+  // The service can hold one placed call under two ids (a run's copy and the rendered one): one row each.
+  const robo = dedupeCalls(roboAll)
   const active = view.assignments.find((row) => row.status === "IN_PROGRESS") ?? view.assignments.find((row) => row.status !== "CANCELLED" && row.status !== "COMPLETED") ?? null
   const driver = car?.driverName ?? active?.driver.name ?? null
   const commandOf = new Map(bundle.events.map((event) => [event.id, event.command]))
@@ -245,7 +247,7 @@ export async function buildDossier(bundle: Bundle): Promise<DossierView> {
     if (typeof data.ingested_call_id === "string") ingestedIds.add(data.ingested_call_id)
     const review = data.review as { verdict?: "PASS" | "PARTIAL" | "FAIL"; violations?: { kind: string; turnSeq: number; text: string }[] } | null
     const violations = (review?.violations ?? []).map((item) => ({ kind: labelIn(item.kind), turn: item.turnSeq, text: item.text }))
-    const base: DossierItem = ingested ? { ...roboCallItem(ingested), id: `line-${event.id}`, at } : {
+    const base: DossierItem = ingested ? { ...roboCallItem(ingested, { zone, now }), id: `line-${event.id}`, at } : {
       id: `line-${event.id}`, at, kind: "call", title, detail: lines.length ? null : "The phone recorded no words.", strength: "recorded", source: "", tone: "neutral",
       turns: lines.map((line) => ({ speaker: line.role === "model" ? (inbound ? "Road Desk" : "Mira from Bahn") : inbound ? "Driver" : "Desk", text: line.text, at })),
     }
@@ -259,7 +261,7 @@ export async function buildDossier(bundle: Bundle): Promise<DossierView> {
 
   for (const call of robo) {
     if (ingestedIds.has(call.id)) continue
-    const item = roboCallItem(call)
+    const item = roboCallItem(call, { zone, now })
     // The call service stamps calls with its own wall clock, which can be ahead of the simulated one.
     const ahead = Boolean(item.at && !isBefore(item.at, now))
     if (ahead) item.detail = [item.detail, "Timed by the call service's own clock, not the simulated clock."].filter(Boolean).join(" ")
@@ -332,7 +334,8 @@ export async function buildDossier(bundle: Bundle): Promise<DossierView> {
   const chainLines = chainSteps.sort((a, b) => a.at.localeCompare(b.at)).map((step) => step.text)
   const rankTone: Record<Tone, number> = { danger: 0, warn: 1, accent: 2, neutral: 3, ok: 4 }
   watching.sort((a, b) => rankTone[a.tone] - rankTone[b.tone])
-  const shownWatching = watching.filter((item, index) => watching.findIndex((other) => other.text === item.text) === index).slice(0, 3)
+  const topWatching = () => watching.sort((a, b) => rankTone[a.tone] - rankTone[b.tone]).filter((item, index) => watching.findIndex((other) => other.text === item.text) === index).slice(0, 3)
+  const shownWatching = topWatching()
   if (need && chainLines.length) need.chain = chainLines
   else if (shownWatching[0] && chainLines.length) shownWatching[0].sources = [...shownWatching[0].sources, ...chainLines]
 
@@ -389,7 +392,8 @@ export async function buildDossier(bundle: Bundle): Promise<DossierView> {
       const drawn = polylineKm(part.coords)
       const along = drawn > 0 ? polylineKm(part.coords.slice(0, best.index + 1)) / drawn : 0
       const covered = part.startKm + part.km * along
-      const fraction = Math.max(0, Math.min(1, covered / car.pathKm))
+      // The drawn track ends at the delivery place; a car at its end is "nearly there" until delivery is recorded.
+      const fraction = Math.max(0, Math.min(0.99, covered / car.pathKm))
       // The simulated track is drawn, not measured: the km to go are the share of the planned distance the route card
       // shows, so the bar and the card never disagree.
       const leg = (bundle.related.transport_segments ?? []).find((row) => row.id === car.segmentId)
@@ -401,6 +405,29 @@ export async function buildDossier(bundle: Bundle): Promise<DossierView> {
     const report = latestTracking(bundle).direct
     if (report?.progress != null) progress = { fraction: Math.max(0, Math.min(1, report.progress)), remainingKm: report.remainingKm != null ? Math.round(report.remainingKm) : null, basis: "driver app progress report", stops, segments }
   } else if (!progress && pickedUpAt == null) progress = { fraction: 0, remainingKm: null, basis: "not picked up yet", stops, segments }
+  // A call outcome that the latest position contradicts (D3): "checked in for the ferry" with the car still far from
+  // the terminal, or "arrived" with kilometres to go. The call's claim stays; the line says the records disagree.
+  if (progress && moving && car && progress.basis.startsWith("simulated phone")) {
+    const coveredKm = progress.fraction * car.pathKm
+    const sea = car.parts.find((part) => part.kind === "sea")
+    for (const call of robo) {
+      if (!isBefore(call.startedAt, now) || (minutesBetween(call.startedAt, now) ?? 0) > 12 * 60) continue
+      const said = (slot: string) => call.slots.find((item) => item.value.slot === slot && item.value.value === true)
+      const who = call.brief?.callee.name ?? "the other party"
+      const checkedIn = said("FERRY_CHECKED_IN") ?? said("CHECKED_IN")
+      if (checkedIn && sea && sea.startKm - coveredKm > 40) watching.push({
+        id: `w-call-${call.id}`, tone: "warn", at: call.startedAt, text: `Call at ${t.at(call.startedAt)} said checked in for the ferry; the phone position is ${Math.round(sea.startKm - coveredKm)} km before the terminal`,
+        why: `${who} said on the call: “${checkedIn.quote}”. The simulated phone position puts the car ${Math.round(sea.startKm - coveredKm)} km short of ${car.ferry?.originName ?? "the terminal"}. One of the two is wrong; the position is the newer evidence.`,
+        sources: ["Call transcript", "Driver's phone GPS, simulated"],
+      })
+      const arrived = said("ARRIVED_DELIVERY")
+      if (arrived && progress.remainingKm != null && progress.remainingKm > 30) watching.push({
+        id: `w-call-${call.id}`, tone: "warn", at: call.startedAt, text: `Call at ${t.at(call.startedAt)} said arrived at the delivery address; the phone position is ${progress.remainingKm} km away`,
+        why: `${who} said on the call: “${arrived.quote}”. The simulated phone position still has ${progress.remainingKm} km to go.`,
+        sources: ["Call transcript", "Driver's phone GPS, simulated"],
+      })
+    }
+  }
   if (progress && moving) {
     const now = strip.find((point) => point.state === "now")
     const words = `${Math.round(progress.fraction * 100)} % of the way${progress.remainingKm != null ? ` · ${progress.remainingKm.toLocaleString("en-GB")} km to go` : ""}`
@@ -435,7 +462,9 @@ export async function buildDossier(bundle: Bundle): Promise<DossierView> {
 
   ahead.sort((a, b) => String(a.at).localeCompare(String(b.at)))
   behind.sort((a, b) => String(b.at ?? "").localeCompare(String(a.at ?? "")))
-  recent.sort((a, b) => String(b.at).localeCompare(String(a.at)))
+  // Newest first by the simulated clock; a line stamped ahead of it (the call service's own clock) goes after the rest.
+  const sortKey = (at: string | null) => at && isBefore(at, now) ? at : ""
+  recent.sort((a, b) => sortKey(b.at).localeCompare(sortKey(a.at)))
   // The same thing said twice (a call run again) is one line.
   const recentLines = recent.filter((item, index) => recent.findIndex((other) => other.text === item.text) === index)
 
@@ -474,7 +503,7 @@ export async function buildDossier(bundle: Bundle): Promise<DossierView> {
     vehicle: header.vehicle?.title ?? "Vehicle not linked", make: primary?.vehicle.make ?? null,
     customer: bundle.customer.name, driver, from: header.from.city, to: header.to.city, laneLabel: header.laneLabel, zone, simNow: now,
     headline, tone: need ? "danger" : attentionTone(view.attention, view.story.tone),
-    need, fault, strip, progress, watching: shownWatching, conversationHref: need?.href ?? `/orders/${bundle.order.id}${view.calls[0] ? `#call-${view.calls[0].id}` : threadAnchor}`, recent: recentLines.slice(0, 3), ahead, behind, records, recordsFromService: !!typed,
+    need, fault, strip, progress, watching: topWatching(), conversationHref: need?.href ?? `/orders/${bundle.order.id}${view.calls[0] ? `#call-${view.calls[0].id}` : threadAnchor}`, recent: recentLines.slice(0, 3), ahead, behind, records, recordsFromService: !!typed,
   }
 }
 
@@ -488,7 +517,10 @@ const PURPOSE_WORDS: Record<string, string> = {
 }
 
 /** One robo-call as a line: who, why, what it established (each citing its turn), what it did not, and the retry. */
-export function roboCallItem(call: CallRecord): DossierItem {
+export function roboCallItem(call: CallRecord, clock: { zone: string | null; now: string | null } = { zone: null, now: null }): DossierItem {
+  const t = weekdayClock(clock.zone)
+  // The retry time comes from the call service's own wall clock; when it is outside the simulated day it is said so.
+  const retry = call.retryAfter ? (clock.now && Math.abs(Date.parse(call.retryAfter) - Date.parse(clock.now)) > 36 * 3600_000 ? "Tries again later (timed by the call service's own clock)." : `Tries again ${t.at(call.retryAfter)}.`) : null
   const callee = call.brief?.callee.name ?? (call.brief?.callee.kind ? labelIn(call.brief.callee.kind) : "the other party")
   const inbound = call.direction === "INBOUND"
   const purpose = call.brief?.purpose ? PURPOSE_WORDS[call.brief.purpose] ?? labelIn(call.brief.purpose).toLowerCase() : null
@@ -502,7 +534,7 @@ export function roboCallItem(call: CallRecord): DossierItem {
   return {
     id: `robo-${call.id}`, at: call.startedAt, kind: "call",
     title: `${inbound ? `${callee} called in` : `Robo-call to ${callee}`}${purpose ? ` (${purpose})` : ""}${triage?.urgency ? `, ${String(triage.urgency).toLowerCase()}` : ""}: ${outcome}`,
-    detail: call.retryAfter ? `Tries again ${call.retryAfter.slice(11, 16)} UTC.` : null,
+    detail: retry,
     strength: "recorded", source: call.engine === "SIMULATED_LLM" ? "Model-simulated call, transcript" : "Scripted simulated call, transcript", tone: escalation ? "danger" : call.outcome === "COMPLETED" ? "ok" : "warn",
     turns: call.turns.map((turn) => ({ speaker: speaker(turn), text: turn.text, at: turn.startedAt })),
     slots: call.slots.map((slot) => ({ label: slotLabel(slot.value.slot), value: slotValue(slot.value.value), quote: slot.quote, turn: slot.turnSeq })),
