@@ -110,6 +110,11 @@ describe("the model's own note before a message never reaches the person", () =>
   })
 })
 
+/** The text of a user message whether it is one string or, as the dossier-first turn sends it, a list of text blocks. */
+function textOf(content: unknown): string {
+  return typeof content === "string" ? content : (content as { text?: string }[]).map((block) => block.text ?? "").join("\n")
+}
+
 describe("scenario A wiring", () => {
   let caseId = ""
 
@@ -153,7 +158,7 @@ describe("scenario A wiring", () => {
 
     const request = model.requests[0] as { system: { cache_control?: unknown }[]; messages: { content: string }[]; tools: { name: string; strict?: boolean }[] }
     assert.ok(request.system[0].cache_control)
-    assert.match(request.messages[0].content, new RegExp(ORDER))
+    assert.match(textOf(request.messages[0].content), new RegExp(ORDER))
     assert.ok(request.tools.every((entry) => entry.strict === true))
     assert.ok(!request.tools.some((entry) => entry.name === "propose_action"), "driver turns cannot propose")
   })
@@ -410,6 +415,6 @@ describe("scenario A wiring", () => {
     assert.equal(row?.status, "WAITING_EXTERNAL")
     assert.equal(row?.waitingFor, "provider")
     assert.ok(row?.nextCheckAt && row.nextAction, "the case waits with a next check time")
-    assert.match((model.requests[0] as { messages: { content: string }[] }).messages[0].content, /logged an outcome/i)
+    assert.match(textOf((model.requests[0] as { messages: { content: unknown }[] }).messages[0].content), /logged an outcome/i)
   })
 })
