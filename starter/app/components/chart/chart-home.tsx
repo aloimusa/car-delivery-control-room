@@ -520,6 +520,7 @@ export function ChartHome({ initial }: { initial: ChartView }) {
         : <Dossier key={selected.orderId} node={selected} onClose={() => setSelectedId(null)} />)}
       {crowd && <div className="crowd-banner" role="status"><b>400 orders.</b> 300 of them are simulated for scale: not in the dataset, no pages, no cases, no calls. Click one to see what a node carries.</div>}
 
+      <div className="chart-foot">
       <div className="chart-strip" aria-label="Fleet at a glance">
         <span className="strip-clock" title="The simulated clock: the dataset snapshot plus the time since the app started">
           {dayOf(simNow)} <b className="num">{clockOf(simNow, true)}</b> UTC, simulated
@@ -545,10 +546,13 @@ export function ChartHome({ initial }: { initial: ChartView }) {
         <span className="strip-note">Car positions are simulated phone GPS</span>
       </div>
 
+      <div className="chart-foot-tools">
       <button type="button" className={`crowd-toggle${crowd ? " on" : ""}`} aria-pressed={crowd} onClick={() => { setCrowd((value) => !value); if (crowd && isCrowd(selectedId)) setSelectedId(null) }} title="Show the map with 400 orders: 300 simulated ones beside the dataset's 100">
         {crowd ? "Back to 100 orders" : "400 orders?"}
       </button>
       <Scrubber simNow={simNow} replay={replay} onReplay={setReplay} />
+      </div>
+      </div>
     </div>
   </AppFrame>
 }
