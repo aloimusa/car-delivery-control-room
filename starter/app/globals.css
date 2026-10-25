@@ -501,6 +501,14 @@ a.tile:hover { box-shadow: var(--shadow-card-hover); }
 .fact.tone-danger dd { color: var(--red-ink); }
 .fact.tone-accent dd { color: var(--teal-ink); }
 .step-notes { margin-top: 8px; display: grid; gap: 3px; font-size: 12.5px; color: var(--muted); max-width: 76ch; }
+/* A step's facts in four groups, each answering one question; the group name is the only decoration. */
+.step-group { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--hair-soft); }
+.step-group h5 { margin: 0 0 7px; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--subtle); }
+.step-group .step-facts { margin-top: 0; }
+.step-group .step-instruction:first-of-type { margin-top: 0; }
+.step-group .step-proofs { margin-top: 0; }
+.step-facts dd .chip { vertical-align: middle; margin-left: 2px; }
+.step-head .chip { font-size: 11px; }
 .step-instruction { margin-top: 8px; padding: 9px 12px; border-left: 2px solid var(--sand); font-size: 13px; color: var(--brown); max-width: 76ch; }
 .step-instruction b { font-weight: 500; color: var(--ink); }
 .step-proofs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
@@ -623,7 +631,7 @@ details.more > :not(summary) { margin-top: 8px; }
 }
 
 /* ── Inbox as a mailbox ─────────────────────────────────────────────────── */
-.mailbox { display: grid; grid-template-columns: minmax(360px, 456px) minmax(0, 1fr); flex: 1; min-height: 0; height: calc(100dvh - var(--role-bar)); }
+.mailbox { display: grid; grid-template-columns: minmax(400px, 500px) minmax(0, 1fr); flex: 1; min-height: 0; height: calc(100dvh - var(--role-bar)); }
 .mail-list { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--hair); background: var(--birch); }
 .mail-list-head { padding: 22px 20px 12px; }
 .mail-list-head h1 { font-family: var(--font-display); font-weight: 600; font-size: 22px; letter-spacing: -0.02em; line-height: 1.1; }

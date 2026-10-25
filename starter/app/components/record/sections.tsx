@@ -321,40 +321,69 @@ export function RouteDetails({ view }: { view: RecordView }) {
 
 function StepView({ step, live, last }: { step: JourneyStep; live: boolean; last: boolean }) {
   const icon = step.role === "PICKUP" ? "pin" : step.role === "DELIVERY" ? "flag" : "yard"
+  const confirmed = (at: string | null, source: string | null) => at ? `confirmed ${fmtDateTime(at)}${source ? ` via ${source}` : ""}` : null
+  const instructions = [
+    step.access?.instruction ? { label: step.site?.accessNote === step.access.instruction ? "Order instruction, copied from the site profile" : "Order instruction", text: step.access.instruction } : null,
+    step.site?.accessNote && step.site.accessNote !== step.access?.instruction ? { label: "Site procedure", text: step.site.accessNote } : null,
+    step.site?.releaseRule ? { label: "Release rule", text: step.site.releaseRule } : null,
+  ].filter((entry): entry is { label: string; text: string } => entry != null)
+  const hasEvidence = step.proofs.length > 0 || step.claims.length > 0 || step.notes.length > 0
+  // Four groups, each one question: when, who and how, what the papers say, what has been recorded or claimed.
   return <div className={`step${step.recorded ? " done" : ""}${live ? " live" : ""}${last ? " last" : ""}`}>
     <span className="step-marker"><Icon name={step.recorded ? "check" : icon} size={13} /></span>
     <div>
       <div className="step-head">
         <span className="step-role">{step.roleLabel}</span>
         <span className="step-name">{step.site ? <Link className="name-link" href={`/sites/${step.site.id}`}>{step.place.name}</Link> : step.place.name}</span>
-        <span className="step-kind">{step.place.kindLabel}{step.site ? "" : " · no managed site profile"}</span>
+        <Chip tone="neutral">{step.place.kindLabel}</Chip>
+        {!step.site && <Chip tone="warn">no site profile</Chip>}
+        {step.recorded && <Chip tone="ok" dot>{step.recorded.label}</Chip>}
       </div>
       <p className="step-addr">{step.place.addressLine ?? <span className="tone-warn">Street not supplied</span>}{step.place.city ? `, ${step.place.city}` : ""}{step.place.country ? `, ${step.place.country}` : ""}</p>
-      <dl className="step-facts">
-        {step.windows.map((window) => <div className="fact" key={window.purpose + window.start}>
-          <dt>{window.label}</dt>
-          <dd><Range start={window.start} end={window.end} zone={window.zone} /><small>{window.sourceLabel}{window.deadline ? ` · outer limit ${fmtDateTime(window.deadline, window.zone)}` : ""}</small></dd>
-        </div>)}
-        {step.recorded && <div className="fact tone-ok"><dt>{step.recorded.label}</dt><dd><When at={step.recorded.at} /><small>{step.recorded.actor ? `reported by ${step.recorded.actor}` : "recorded event"}</small></dd></div>}
-        {step.contact && <div className={`fact tone-${step.contact.tone}`}>
-          <dt>Contact</dt>
-          <dd>{step.contact.name ?? "Not supplied"}{step.contact.role ? ` (${step.contact.role})` : ""} · {step.contact.statusLabel.toLowerCase()}
-            <small>{step.contact.handle ?? "no handle recorded"}{step.contact.confirmedAt ? ` · confirmed ${fmtDateTime(step.contact.confirmedAt)}${step.contact.sourceLabel ? ` via ${step.contact.sourceLabel}` : ""}` : " · no confirmation recorded for this order"}</small>
-          </dd>
-        </div>}
-        {step.access && <div className={`fact tone-${step.access.tone}`}>
-          <dt>Access</dt>
-          <dd>{step.access.statusLabel}<small>{step.access.statedByLabel ? `stated by ${step.access.statedByLabel}` : ""}{step.access.confirmedAt ? ` · confirmed ${fmtDateTime(step.access.confirmedAt)}${step.access.sourceLabel ? ` via ${step.access.sourceLabel}` : ""}` : ""}</small></dd>
-        </div>}
-        {step.site?.hours && <div className="fact"><dt>Site hours</dt><dd>{step.site.hours}<small>local time{step.site.advanceNoticeMinutes ? ` · ${step.site.advanceNoticeMinutes} min advance notice` : ""}</small></dd></div>}
-        {step.site?.handoverMode && <div className="fact"><dt>Handover</dt><dd>{step.site.handoverMode}{step.site.contactEmail && <small>{step.site.contactEmail}</small>}</dd></div>}
-      </dl>
-      {step.access?.instruction && <p className="step-instruction"><b>{step.site?.accessNote === step.access.instruction ? "Order instruction, copied from the site profile." : "Order instruction."}</b> {step.access.instruction}</p>}
-      {step.site?.accessNote && step.site.accessNote !== step.access?.instruction && <p className="step-instruction"><b>Site procedure.</b> {step.site.accessNote}</p>}
-      {step.site?.releaseRule && <p className="step-instruction"><b>Release rule.</b> {step.site.releaseRule}</p>}
-      {step.claims.length > 0 && <div className="step-notes">{step.claims.map((claim) => <p key={claim.id}><Chip tone={claim.tone}>{claim.statusLabel}</Chip> Claim about the {claim.field.toLowerCase()}: {claim.claim}{claim.source ? ` (${claim.source}${claim.confidence ? `, ${claim.confidence}` : ""})` : ""}</p>)}</div>}
-      {step.notes.length > 0 && <div className="step-notes">{step.notes.map((note) => <p key={note}>{note}</p>)}</div>}
-      {step.proofs.length > 0 && <div className="step-proofs">{step.proofs.map((proof) => <Chip key={proof.id} tone={proof.tone} dot>{proof.kindLabel} · {proof.statusLabel.toLowerCase()}{proof.fileCount ? ` · ${proof.fileCount} files` : ""}</Chip>)}</div>}
+
+      <div className="step-group">
+        <h5>When</h5>
+        <dl className="step-facts">
+          {step.windows.map((window) => <div className="fact" key={window.purpose + window.start}>
+            <dt>{window.label}</dt>
+            <dd><Range start={window.start} end={window.end} zone={window.zone} /><small>{window.sourceLabel}{window.deadline ? ` · outer limit ${fmtDateTime(window.deadline, window.zone)}` : ""}</small></dd>
+          </div>)}
+          {step.recorded && <div className="fact tone-ok"><dt>{step.recorded.label}</dt><dd><When at={step.recorded.at} /><small>{step.recorded.actor ? `reported by ${step.recorded.actor}` : "recorded event"}</small></dd></div>}
+          {step.windows.length === 0 && !step.recorded && <div className="fact"><dt>Window</dt><dd className="tone-warn">None recorded</dd></div>}
+        </dl>
+      </div>
+
+      <div className="step-group">
+        <h5>Who and how</h5>
+        <dl className="step-facts">
+          <div className="fact">
+            <dt>Contact</dt>
+            <dd>{step.contact ? <>{step.contact.name ?? "Not supplied"}{step.contact.role ? ` (${step.contact.role})` : ""} <Chip tone={step.contact.tone}>{step.contact.statusLabel}</Chip>
+              <small>{step.contact.handle ?? "no handle recorded"}{confirmed(step.contact.confirmedAt, step.contact.sourceLabel) ? ` · ${confirmed(step.contact.confirmedAt, step.contact.sourceLabel)}` : " · not confirmed for this order"}</small></>
+              : <span className="tone-warn">None recorded</span>}</dd>
+          </div>
+          <div className="fact">
+            <dt>Access</dt>
+            <dd>{step.access ? <><Chip tone={step.access.tone}>{step.access.statusLabel}</Chip>
+              <small>{[step.access.statedByLabel ? `stated by ${step.access.statedByLabel}` : null, confirmed(step.access.confirmedAt, step.access.sourceLabel)].filter(Boolean).join(" · ") || "no confirmation recorded"}</small></>
+              : <span className="tone-warn">None recorded</span>}</dd>
+          </div>
+          {step.site?.hours && <div className="fact"><dt>Site hours</dt><dd>{step.site.hours}<small>local time{step.site.advanceNoticeMinutes ? ` · ${step.site.advanceNoticeMinutes} min advance notice` : ""}</small></dd></div>}
+          {step.site?.handoverMode && <div className="fact"><dt>Handover</dt><dd>{step.site.handoverMode}{step.site.contactEmail && <small>{step.site.contactEmail}</small>}</dd></div>}
+        </dl>
+      </div>
+
+      {instructions.length > 0 && <div className="step-group">
+        <h5>Instructions</h5>
+        {instructions.map((entry) => <p className="step-instruction" key={entry.label}><b>{entry.label}.</b> {entry.text}</p>)}
+      </div>}
+
+      {hasEvidence && <div className="step-group">
+        <h5>Recorded and claimed</h5>
+        {step.proofs.length > 0 && <div className="step-proofs">{step.proofs.map((proof) => <Chip key={proof.id} tone={proof.tone} dot>{proof.kindLabel} · {proof.statusLabel.toLowerCase()}{proof.fileCount ? ` · ${proof.fileCount} files` : ""}</Chip>)}</div>}
+        {step.claims.length > 0 && <div className="step-notes">{step.claims.map((claim) => <p key={claim.id}><Chip tone={claim.tone}>{claim.statusLabel}</Chip> Claim about the {claim.field.toLowerCase()}: {claim.claim}{claim.source ? ` (${claim.source}${claim.confidence ? `, ${claim.confidence}` : ""})` : ""}</p>)}</div>}
+        {step.notes.length > 0 && <div className="step-notes">{step.notes.map((note) => <p key={note}>{note}</p>)}</div>}
+      </div>}
     </div>
   </div>
 }
