@@ -30,7 +30,7 @@ Three terminals, or two and a backgrounded Docker.
 
 ```sh
 cd starter
-cp .env.example .env            # add OPENROUTER_API_KEY, AGENT_MODEL, SIM_DRIVER_MODEL
+cp .env.example .env            # add OPENROUTER_API_KEY; the rest can stay
 npm ci
 docker compose up -d --wait     # Postgres on 127.0.0.1:5438, attachment store on 9009 (console 9010)
 npm run db:push                 # creates the dataset tables, the cr_ tables and the retired voice tables
@@ -111,8 +111,10 @@ export DATABASE_URL=postgres://controlroom:controlroom@localhost:5438/controlroo
 npm run db:push && npm run db:seed && npm test
 ```
 
-About nine tests depend on database state and fail on a fresh database; they are known. `npm run e2e:roles` plays
-the demo stories through the real routes with the real model (a few cents on DeepSeek).
+On a fresh seeded database all 137 tests pass (measured 25 October). Two tests in `lib/agent/loop.test.ts` fail when
+a dossier service answers at `CALL_SERVICE_URL` while the tests run; point it at a closed port
+(`CALL_SERVICE_URL=http://127.0.0.1:1 npm test`) or stop the service. `docs/TESTING.md` has the details.
+`npm run e2e:roles` plays the demo stories through the real routes with the real model (a few cents on DeepSeek).
 
 From `dossier/`: `npm run check` runs typecheck, record validation, a strictness check, builds every dossier and runs
 the scripted simulated calls; no model needed.
