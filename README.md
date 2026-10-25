@@ -20,10 +20,8 @@ anything with consequences.
 
 Both services need one secret: an OpenRouter key. Copy `starter/.env.example` to `starter/.env` and
 `dossier/.env.example` to `dossier/.env`, put the key in `OPENROUTER_API_KEY` in each, and leave the rest; every other
-line has a working default. In `starter/.env` also set `AGENT_MODEL=deepseek/deepseek-v4-pro` and
-`SIM_DRIVER_MODEL=deepseek/deepseek-v4.1-flash`, because the code's default when they are unset is a far more
-expensive model (`docs/SETUP.md` says why). The phone line's speech in and out runs on the same key through
-OpenRouter, so no GPU is needed anywhere.
+line has a working default, and the code's own defaults are the models the project was measured with. The phone
+line's speech in and out runs on the same key through OpenRouter, so no GPU is needed anywhere.
 
 ## Run from a fresh clone
 
@@ -54,6 +52,7 @@ Open http://localhost:3000, then `/demo` → **Reset demo** → **A. Fresh warni
 | [docs/DEMO.md](docs/DEMO.md) | a presenter's script: which pages in which order, what to say, what is simulated, known rough edges |
 | [docs/OPERATIONS.md](docs/OPERATIONS.md) | services and ports, logs, the sandbox and the night harness, costs per run, what to do when something is stuck |
 | [docs/DATA-MODEL.md](docs/DATA-MODEL.md) | the dataset, the app's `cr_` tables, the call service's files; how an order's dossier is assembled |
+| [docs/TESTING.md](docs/TESTING.md) | the test suite and what makes it fail, the night harness, browser checks with Playwright, how to read a worker report |
 | [docs/HOW-AGENTS-RUN.md](docs/HOW-AGENTS-RUN.md) | the audit of the two agent designs and the review that led to the single context |
 | [RUN-SHEET.md](RUN-SHEET.md) | the live demo, click by click, with times |
 
