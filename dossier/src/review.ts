@@ -39,6 +39,24 @@ function numbersIn(text: string): string[] {
   return [...out]
 }
 
+const HOUR_WORDS = ["twelve", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven"]
+const MINUTE_WORDS: Record<string, number> = { quarter: 15, half: 30, five: 5, ten: 10, twenty: 20, "twenty-five": 25, "twenty five": 25, one: 1, two: 2, three: 3, four: 4, six: 6, seven: 7, eight: 8, nine: 9, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19, "twenty-one": 21, "twenty-two": 22, "twenty-three": 23, "twenty-four": 24, "twenty-six": 26, "twenty-seven": 27, "twenty-eight": 28, "twenty-nine": 29 }
+const hourOf = (h: string) => (/^\d+$/.test(h) ? Number(h) % 12 : HOUR_WORDS.indexOf(h.toLowerCase()))
+
+/** Spoken clock forms in a line ("quarter to four", "twenty past ten", "ten o'clock"): minutes on a twelve-hour face, and the number words each one is made of. */
+export function spokenClock(text: string): { minutes: number; words: string[] }[] {
+  const out: { minutes: number; words: string[] }[] = []
+  const hour = `(${HOUR_WORDS.join("|")}|\\d{1,2})`
+  const minute = `(${Object.keys(MINUTE_WORDS).sort((a, b) => b.length - a.length).join("|")})`
+  for (const m of text.matchAll(new RegExp(`\\b${minute}(?: minutes?)? (past|to) ${hour}\\b`, "gi"))) {
+    const mm = MINUTE_WORDS[m[1]!.toLowerCase()], h = hourOf(m[3]!)
+    if (mm === undefined || h < 0) continue
+    out.push({ minutes: ((m[2]!.toLowerCase() === "to" ? (h + 11) % 12 : h) * 60 + (m[2]!.toLowerCase() === "to" ? 60 - mm : mm)) % 720, words: [m[1]!.toLowerCase(), m[3]!.toLowerCase()] })
+  }
+  for (const m of text.matchAll(new RegExp(`\\b${hour} o'?clock\\b`, "gi"))) { const h = hourOf(m[1]!); if (h >= 0) out.push({ minutes: h * 60, words: [m[1]!.toLowerCase()] }) }
+  return out
+}
+
 export function reviewCall(c: CallRecord): CallReview {
   const asked = c.brief.ask as string[]
   const answered = asked.filter((a) => c.slots.some((s) => s.value.slot === a))
@@ -74,14 +92,22 @@ export function reviewCall(c: CallRecord): CallReview {
     if (mm === 30) { cardNumbers.add("thirty"); cardNumbers.add("half"); cardNumbers.add(`${hourWord[h]} thirty`); cardNumbers.add(`${hourWord[h % 12 || 12]} thirty`) }
     else if (mm) { cardNumbers.add(String(mm)); if (hourWord[mm]) cardNumbers.add(hourWord[mm]!) }
   }
+  // The clock times the card holds, as minutes on a twelve-hour face, so a spoken form can be checked against them.
+  const cardClock = [...card.matchAll(/\b(\d{1,2})[:.](\d{2})\b/g)].map((m) => (Number(m[1]) % 12) * 60 + Number(m[2]))
+  for (const t of c.turns) if (t.speaker === "CALLEE") for (const m of t.text.matchAll(/\b(\d{1,2})[:.](\d{2})\b/g)) cardClock.push((Number(m[1]) % 12) * 60 + Number(m[2]))
   const unsupportedNumbers: CallReview["unsupportedNumbers"] = []
-  for (const t of caller) for (const n of numbersIn(t.text)) {
-    if (cardNumbers.has(n)) continue
-    if (/^(one|two|three|four|five|six|seven|eight|nine|ten)$/.test(n) && !/\d/.test(n) && !/(o'clock|in the (morning|afternoon|evening)|october|november)/i.test(t.text)) continue   // "one or two things": not a fact
-    // spoken clock forms ("quarter to four", "half past", "ten to") are a time, not an invented number
-    if (/^(fifteen minutes|half|quarter)$/.test(n)) continue
-    if (/\b(quarter|half|\w+ minutes?) (past|to) \w+\b/i.test(t.text) && !/\d/.test(n)) continue
-    unsupportedNumbers.push({ turnSeq: t.seq, value: n, text: t.text })
+  for (const t of caller) {
+    // "quarter to four" is a time, not an invented number, when the card holds a time within a few minutes of it
+    // (15:44 is said as quarter to four); the words of a spoken time that matches nothing on the card stay flagged.
+    const spokenOk = new Set<string>()
+    for (const { minutes, words } of spokenClock(t.text)) if (cardClock.some((cm) => Math.abs(cm - minutes) <= 5 || Math.abs(cm - minutes) >= 715)) for (const w of words) spokenOk.add(w)
+    for (const n of numbersIn(t.text)) {
+      if (cardNumbers.has(n) || spokenOk.has(n)) continue
+      if (/^(one|two|three|four|five|six|seven|eight|nine|ten)$/.test(n) && !/\d/.test(n) && !/(o'clock|in the (morning|afternoon|evening)|october|november)/i.test(t.text)) continue   // "one or two things": not a fact
+      if (/^(fifteen minutes|half|quarter)$/.test(n) && !/\b(half|quarter) (past|to)\b/i.test(t.text)) continue   // "half an hour", "a quarter of the way": not a clock time
+      if (n === "112" || n === "one one two") continue   // the emergency number the line is told to give
+      unsupportedNumbers.push({ turnSeq: t.seq, value: n, text: t.text })
+    }
   }
   const closingKey = c.brief.closing.slice(0, 24).toLowerCase()
   const closingCount = caller.filter((t) => t.text.toLowerCase().includes(closingKey) || /pass this to our operator/i.test(t.text)).length
