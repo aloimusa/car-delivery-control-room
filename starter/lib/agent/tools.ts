@@ -639,9 +639,11 @@ const handlers: Record<ToolName, (state: TurnState, input: Record<string, unknow
 
   async hand_over(state, input) {
     const reason = str(input.reason)
-    if (!state.followUps.some((followUp) => followUp.kind === "analysis")) {
-      state.followUps.push({ kind: "analysis", caseId: state.caseRow.id, reason })
+    // One hand-over per turn: a second call in the same turn adds nothing but a duplicate note in the case log.
+    if (state.followUps.some((followUp) => followUp.kind === "analysis")) {
+      return { content: "Already handed over this turn; operations gets one decision card after it. Do not call hand_over again: write your reply now.", log: null }
     }
+    state.followUps.push({ kind: "analysis", caseId: state.caseRow.id, reason })
     const updated = await updateCase(state.caseRow.id, {
       status: "AGENT_WORKING", owner: "agent", waitingOn: "the agent", waitingFor: "agent",
       nextAction: "The agent is preparing a decision for operations.", nextCheckAt: new Date(simNow().getTime() + 3 * 60000),
@@ -660,7 +662,7 @@ const handlers: Record<ToolName, (state: TurnState, input: Record<string, unknow
     const proposal = proposalFrom(input)
     const invented = await uncitableSources(state, [...proposal.handover.facts.flatMap((fact) => fact.sources ?? []), ...proposal.evidence_refs])
     if (invented.length) {
-      return { content: `Not recorded: ${invented.length === 1 ? "this source is" : "these sources are"} not in the records you were shown: ${invented.map((ref) => `${ref.label ?? ref.kind} (${ref.id})`).join("; ")}. Cite the source objects exactly as the tools gave them; for a message or an operator's instruction, read get_timeline and cite its entry.`, isError: true, gate: "REFUSED" }
+      return { content: `Not recorded: ${invented.length === 1 ? "this source is" : "these sources are"} not in the records you were shown: ${invented.map((ref) => ref.label ?? ref.kind).join("; ")}. Cite the source objects exactly as the tools gave them; for a message or an operator's instruction, read get_timeline and cite its entry.`, isError: true, gate: "REFUSED" }
     }
     if (str(input.booking_quote_id).trim()) {
       const selection = await recordedTravelSelection(state.caseRow.id, str(input.booking_quote_id).trim())

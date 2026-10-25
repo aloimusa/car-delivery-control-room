@@ -161,8 +161,33 @@ export function resolveDraft(draft: ProposalInput["draft_message"], facts: Order
   return { ...base, to_type: "site", to_id: id, to_name: name }
 }
 
+/** Words that assert the driver has arrived somewhere (English, and the German the talking points are written in). */
+const ARRIVAL_CLAIM = /\b(arrived at|has arrived|is (now )?at the (delivery|pickup|collection) (address|site|place)|has reached the|steht (jetzt |nun )?(in|an|vor|bei) der|ist (jetzt |nun )?(an|bei|in) der|angekommen)\b/i
+const KM_REMAINING = /(\d+(?:[.,]\d+)?)\s*km (remaining|to go|out|left|entfernt)/i
+
+/**
+ * A card may only state what the records or the driver said (D11). The gate can check one such claim against the
+ * card's own evidence: text that says the driver has arrived while a fact on the same card, or the latest driver-app
+ * report, still counts kilometres remaining and no arrival milestone is on record.
+ */
+export function arrivalContradiction(input: ProposalInput, facts: OrderFacts): string | null {
+  const texts = [input.title, input.rationale, input.handover?.what_happened ?? "", ...(input.handover?.facts ?? []).map((fact) => fact.text), input.draft_message?.body ?? ""]
+  const claim = texts.map((text) => text.match(ARRIVAL_CLAIM)?.[0]).find(Boolean)
+  if (!claim) return null
+  if (facts.steps.some((step) => /ARRIV|DELIVER|HANDED/.test(String(step.milestone)))) return null
+  const onCard = texts.map((text) => text.match(KM_REMAINING)).find((match) => match && Number(match[1].replace(",", ".")) > 5)
+  const latest = [...facts.tracking].sort((a, b) => String(b.observed_at ?? "").localeCompare(String(a.observed_at ?? "")))[0]
+  const remaining = typeof latest?.distance_remaining_km === "number" ? latest.distance_remaining_km : null
+  const tail = "Nothing on record says the driver arrived, and a question from the driver is not a report. State where the records put them and what the driver actually said."
+  if (onCard) return `Not recorded: the card says "${claim}" while its own evidence counts ${onCard[0]}. ${tail}`
+  if (remaining != null && remaining > 5) return `Not recorded: the card says "${claim}" but the latest driver-app report has ${Math.round(remaining)} km remaining. ${tail}`
+  return null
+}
+
 export function validateProposal(input: ProposalInput, facts: OrderFacts): GateVerdict {
   if (!input.title.trim() || !input.rationale.trim()) return { ok: false, reason: "A proposal needs a title and a rationale." }
+  const arrival = arrivalContradiction(input, facts)
+  if (arrival) return { ok: false, reason: arrival }
   // The title is the line an operator scans in the queue; the facts belong in the rationale and the handover.
   if (input.title.trim().length > 110) return { ok: false, reason: "The title is too long for the queue: keep it under twelve words and put the facts in the rationale." }
   if (input.action_type === "BOOK_TRAVEL" || input.booking_selection) {
