@@ -50,8 +50,10 @@ export async function personaTurn(d: Dossier, persona: Persona, purpose: CallBri
   if (said === 0 && inbound && persona.inbound) return { text: persona.inbound.opening, costUsd: 0, end: false }
   // Mira's closing line ends the call: the party says goodbye once and the screen hangs up, instead of the two models
   // wishing each other goodbye until someone presses the button.
-  const lastCaller = [...history].reverse().find((h) => h.role === "caller")?.text ?? ""
-  const end = !!opts.brief && said > 0 && isClosing(lastCaller, opts.brief)
+  // Her last turn is the trailing run of her sentences ("Thank you." and "I will pass this…" arrive as two lines).
+  let lastCaller = ""
+  for (let i = history.length - 1; i >= 0 && history[i]!.role === "caller"; i--) lastCaller = `${history[i]!.text} ${lastCaller}`
+  const end = !!opts.brief && said > 0 && isClosing(lastCaller.trim(), opts.brief)
   const system = calleeSheet(d, persona) + (inbound && persona.inbound ? `\nYou called the support line because: ${persona.inbound.opening}` : "")
     + (end ? "\nThey are ending the call now. Say goodbye in one short sentence; ask nothing and add no new facts." : "")
   // Mira speaks sentence by sentence and each arrives as its own line; the model wants them as one turn.
