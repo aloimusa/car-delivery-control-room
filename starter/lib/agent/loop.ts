@@ -351,7 +351,10 @@ function effortFor(request: TurnRequest): Effort {
 }
 
 async function deliver(request: TurnRequest, caseRow: CaseRow, facts: OrderFacts, reply: string, extra: Record<string, unknown> = {}): Promise<{ eventId: string | null; held: boolean }> {
-  const text = reply.trim()
+  let text = reply.trim()
+  // The customer's name never reaches a site, whatever the model wrote: in a site message it becomes "the customer".
+  const customerName = facts.customer.name?.trim()
+  if (request.audience === "site" && customerName && customerName.length > 3 && text.includes(customerName)) text = text.split(customerName).join("the customer")
   if (!text || text === "NO_MESSAGE") return { eventId: null, held: false }
   if (request.audience === "site") {
     const endpoint = siteEndpoint(request, facts)
