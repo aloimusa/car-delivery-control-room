@@ -216,8 +216,13 @@ export function CallScreen({ target, onClose, autoStart = false, onResult }: {
       } else if (message.type === "marker") {
         if (message.kind === "user_speech_start") setTurn("listening")
         if (message.kind === "user_speech_stop") setTurn("thinking")
-        if (message.kind === "model_speech_start" || message.kind === "agent_bos") setTurn("speaking")
-        if (message.kind === "model_speech_stop" || message.kind === "agent_eos") { setTurn("listening"); if (flags.current.auto) void autoRef.current?.() }
+        // Mira speaks sentence by sentence; a stop is the end of her turn only if she has not started again within a
+        // moment. The party answers after that settle, never between two of her sentences.
+        if (message.kind === "model_speech_start" || message.kind === "agent_bos") { setTurn("speaking"); if (settle.current) { window.clearTimeout(settle.current); settle.current = 0 } }
+        if (message.kind === "model_speech_stop" || message.kind === "agent_eos") {
+          setTurn("listening")
+          if (flags.current.auto) { if (settle.current) window.clearTimeout(settle.current); settle.current = window.setTimeout(() => { settle.current = 0; if (flags.current.auto) void autoRef.current?.() }, 1800) }
+        }
         if (message.kind === "barge_in") { stopPlayback(); setTurn("listening") }
       }
       if (message.type === "text" && message.text) {
@@ -330,6 +335,7 @@ export function CallScreen({ target, onClose, autoStart = false, onResult }: {
   const captionsRef = useRef<Caption[]>([])
   captionsRef.current = captions
   const autoRef = useRef<(() => Promise<void>) | null>(null)
+  const settle = useRef(0)
   const speakAsParty = useCallback(async (text: string, mp3: string | null) => {
     const current = call.current
     if (!current || current.ended || !current.ws || current.ws.readyState !== 1) return
