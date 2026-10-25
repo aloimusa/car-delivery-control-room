@@ -9,7 +9,7 @@ import { CHECKLISTS, CallRecord, MAX_QUESTIONS, SlotName, SlotValue, Situation, 
 import type { Persona } from "./sim/personas"
 import { composeBrief, renderDossier } from "./reason"
 import { items } from "./brief"
-import { EMERGENCY_CLOSING, contextPrompt, isClosing } from "./context"
+import { EMERGENCY_CLOSING, closingKind, contextPrompt, isClosing } from "./context"
 
 type Usage = { prompt_tokens: number; completion_tokens: number; cost?: number }
 async function complete(apiKey: string, model: string, messages: { role: "system" | "user" | "assistant"; content: string }[], json = false, temperature = 0.6): Promise<{ text: string; cost: number }> {
@@ -55,6 +55,10 @@ export async function personaTurn(d: Dossier, persona: Persona, purpose: CallBri
   return { text: (r.text.split("\n")[0] ?? "").trim() || "Sorry, say that again?", costUsd: r.cost }
 }
 
+/** The callee saying they are at the wheel right now; "pulled over" or "parked" in the same breath means they are not. */
+const DRIVING = /\b(i'?m|i am|still|am|while|and) driving\b|\bbehind the wheel\b|\bon the road right now\b|\bmake it quick\b/i
+const STOPPED = /\b(pulled (over|in|into|off)|parked|stopped|stationary|lay-by|rest area|service area|off the road|not driving|terminal|boarding lane)\b/i
+
 const Extraction = z.object({
   triage: z.object({ urgency: Urgency, situation: Situation, turnSeq: z.number().int().nonnegative(), quote: z.string() }).strict().nullable(),
   slots: z.array(z.object({ slot: SlotName, value: z.union([z.string(), z.boolean()]), turnSeq: z.number().int().nonnegative(), quote: z.string() }).strict()).max(16),
@@ -87,21 +91,39 @@ export async function runLlmCall(d: Dossier, persona: Persona, purpose: CallBrie
   const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9 ]/g, "").replace(/\s+/g, " ").trim()
   const saidBefore = new Set<string>()
   let saidEmergency = 0
+  // A driver who says they are driving gets one short question and a close, whatever the brief still wants asked:
+  // the prompt says so, and this counts the caller's turns since they said it so a third one becomes the closing.
+  let drivingSince: number | null = null
+  const isDriving = (reply: string) => DRIVING.test(reply) && !STOPPED.test(reply)
+  if (persona.role === "DRIVER" && turns.some((t) => t.speaker === "CALLEE" && isDriving(t.text))) drivingSince = 0
   for (let i = 0; i < maxTurns && !done; i++) {
-    const guard = i < minTurnsBeforeClose ? "\n(You have not asked everything yet: do not close the call on this turn; ask your next question.)" : ""
+    const turnsWhileDriving = drivingSince === null ? 0 : i - drivingSince
+    const guard = drivingSince !== null
+      ? (turnsWhileDriving === 0 ? "\n(They are driving: ask at most one short question now, or offer to call back once they have stopped. Never ask them to look anything up.)"
+        : "\n(They are driving and you have asked your one question: ask nothing more. Offer to call back or ask them to pull over somewhere safe and write in the app, read back in one sentence, and end with the closing sentence now.)")
+      : i < minTurnsBeforeClose ? "\n(You have not asked everything yet: do not close the call on this turn; ask your next question.)" : ""
     const c = await complete(apiKey, model, [{ role: "system", content: callerSys + guard }, ...history], false, 0.5); cost += c.cost
     let line = c.text.replace(/^Mira:\s*/i, "").split("\n")[0]!.trim(); if (!line) break
     const key = norm(line)
     if (/\b112\b/.test(line)) saidEmergency += 1
     if (saidEmergency >= 2 && !isClosing(line, brief)) { line = EMERGENCY_CLOSING }
     else if (saidBefore.has(key) && i >= 1 && !isClosing(line, brief)) { line = /\b112\b/.test(line) ? EMERGENCY_CLOSING : brief.closing }
+    // One question and one read-back are all a driving driver gets; a third turn that still is not the closing becomes it.
+    else if (drivingSince !== null && turnsWhileDriving >= 2 && !isClosing(line, brief)) { line = brief.closing }
     saidBefore.add(key)
     say("CALLER", line); history.push({ role: "assistant", content: line })
-    // The closing line ends the call: no further callee turn, never a second closing.
-    if (isClosing(line, brief)) { done = true; break }
+    // The closing line ends the call: no further callee turn, never a second closing. A hand-off that is not the
+    // closing sentence ("an operator will call you back", "goodbye") ends the call too, but the closing is still spoken.
+    const kind = closingKind(line, brief)
+    if (kind === "handoff") {
+      if (!norm(brief.closing).includes(key)) { say("CALLER", brief.closing); history.push({ role: "assistant", content: brief.closing }) }
+      done = true; break
+    }
+    if (kind) { done = true; break }
     const r = await complete(apiKey, calleeModel, [{ role: "system", content: calleeSys }, ...asCallee()], false, 0.7); cost += r.cost
     const reply = r.text.split("\n")[0]!.trim(); if (!reply) break
     say("CALLEE", reply); history.push({ role: "user", content: reply })
+    if (persona.role === "DRIVER" && drivingSince === null && isDriving(reply)) drivingSince = i + 1
   }
   if (!done) { say("CALLER", brief.closing) }
   const ex = await extractTurns(apiKey, model, brief, turns, inbound, persona.role === "DRIVER" ? "Driver" : "Desk", startedAt); cost += ex.cost
@@ -111,8 +133,9 @@ export async function runLlmCall(d: Dossier, persona: Persona, purpose: CallBrie
   const outcome: CallRecord["outcome"] = inbound ? (extracted?.escalate ? "ESCALATED" : "COMPLETED") : missing.length ? "PARTIAL" : "COMPLETED"
   const toolCalls: CallRecord["toolCalls"] = extracted?.escalate && inbound ? [{ turnSeq: Math.max(0, seq - 2), name: "ESCALATE_TO_OPERATOR", argument: `${extracted.triage?.urgency ?? ""} ${extracted.triage?.situation ?? ""}: ${slots.map((s) => `${s.value.slot}=${JSON.stringify(s.value.value)}`).join(", ")}` }] : []
   const record = CallRecord.parse({
-    // The id carries the wall clock too: two runs placing the same call at the same simulated minute keep both records.
-    id: `call-llm-${persona.id}-${Date.parse(startedAt).toString(36)}-${Date.now().toString(36).slice(-4)}`, orderId: brief.orderId, brief, direction: inbound ? "INBOUND" : "OUTBOUND", attempt: 1,
+    // The id carries the whole wall clock: two runs placing the same call at the same simulated minute keep both records
+    // (four trailing digits of it came round every 28 minutes, and a re-run overwrote the earlier record).
+    id: `call-llm-${persona.id}-${Date.parse(startedAt).toString(36)}-${Date.now().toString(36)}`, orderId: brief.orderId, brief, direction: inbound ? "INBOUND" : "OUTBOUND", attempt: 1,
     startedAt, endedAt: new Date(clock).toISOString(), outcome, engine: "SIMULATED_LLM", triage: extracted?.triage ?? null, toolCalls, turns, slots, toneReview: null,
     retryAfter: outcome === "PARTIAL" ? new Date(clock + 2 * 3600e3).toISOString() : null,
   })
