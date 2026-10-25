@@ -488,7 +488,7 @@ const PURPOSE_WORDS: Record<string, string> = {
 }
 
 /** One robo-call as a line: who, why, what it established (each citing its turn), what it did not, and the retry. */
-function roboCallItem(call: CallRecord): DossierItem {
+export function roboCallItem(call: CallRecord): DossierItem {
   const callee = call.brief?.callee.name ?? (call.brief?.callee.kind ? labelIn(call.brief.callee.kind) : "the other party")
   const inbound = call.direction === "INBOUND"
   const purpose = call.brief?.purpose ? PURPOSE_WORDS[call.brief.purpose] ?? labelIn(call.brief.purpose).toLowerCase() : null

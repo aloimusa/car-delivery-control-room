@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { loadOrder } from "@/lib/present/load"
+import { orderCallViews } from "@/lib/present/order-calls"
 import { buildRecordView } from "@/lib/present/record"
 
 export const runtime = "nodejs"
@@ -12,8 +13,10 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
   // The raw records keep their shape for anyone reading the API. `view` is the
   // same information read out with labels, names and grouping for the interface.
   const view = buildRecordView(bundle)
+  // The call service's calls on this order (demo runs, the autopilot, ingested live calls), so the page lists what the map panel lists.
+  const serviceCalls = await orderCallViews(bundle)
   return NextResponse.json({
     order, customer, pickup, delivery, pickupSite, deliverySite, items, drivers, alerts, conversations: threads, messages, events,
-    related, bundleOrderRefs, view,
+    related, bundleOrderRefs, view, serviceCalls,
   })
 }

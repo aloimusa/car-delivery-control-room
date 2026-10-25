@@ -132,3 +132,8 @@
 .sc-compact .sc-grid { grid-template-columns: repeat(2, 1fr); }
 .sc-compact .sc-verdict { font-size: 16px; }
 .sc-compact header p { font-size: 12.5px; }
+
+/* The order page's Calls section: what a call established, under its turns. */
+.call-claims { margin: 4px 0 0; padding: 0 0 0 4px; list-style: none; display: grid; gap: 4px; font-size: 13px; }
+.call-claims small { display: block; color: var(--muted); }
+.call-missing { margin: 4px 0 0; font-size: 13px; color: var(--muted); }

@@ -1,7 +1,9 @@
 "use client"
 
 import Link from "next/link"
+import type { OrderCallView } from "@/lib/present/order-calls"
 import type { RecordView } from "@/lib/present/types"
+import { OrderCalls } from "./calls/order-calls"
 import { CasePanel } from "./case/case-panel"
 import { OrderJourneyBar } from "./chart/journey-bar"
 import { MakeMark } from "./queue"
@@ -9,7 +11,7 @@ import { RecordHero } from "./record/header"
 import { RecordsPanel } from "./record/records"
 import { ActivitySection, AttentionPanel, ConversationsSection, DecisionsSection, EvidenceSection, RouteStrip } from "./record/sections"
 
-export type Detail = { order: { id: string; reference: string }; view: RecordView }
+export type Detail = { order: { id: string; reference: string }; view: RecordView; serviceCalls?: OrderCallView[] }
 
 /** The car and order in one line, above a case. */
 function CaseOrderLine({ view }: { view: RecordView }) {
@@ -25,6 +27,8 @@ function CaseOrderLine({ view }: { view: RecordView }) {
 
 export function OrderPane({ detail, onChange }: { detail: Detail; onChange: () => void }) {
   const { view } = detail
+  const zone = view.header.to.zone ?? view.header.from.zone ?? null
+  const calls = <OrderCalls calls={detail.serviceCalls ?? []} simNow={view.simNow} zone={zone} />
   if (view.cases.length || view.calls.length) return <>
     <CaseOrderLine view={view} />
     <OrderJourneyBar orderId={detail.order.id} />
@@ -34,6 +38,7 @@ export function OrderPane({ detail, onChange }: { detail: Detail; onChange: () =
     <RecordHero view={view} compact />
     <AttentionPanel view={view} belowCases />
     <ConversationsSection view={view} onChange={onChange} />
+    {calls}
     <EvidenceSection view={view} />
     <DecisionsSection view={view} />
     <RecordsPanel view={view} orderId={detail.order.id} />
@@ -44,6 +49,7 @@ export function OrderPane({ detail, onChange }: { detail: Detail; onChange: () =
     <RouteStrip view={view} />
     <AttentionPanel view={view} />
     <ConversationsSection view={view} onChange={onChange} />
+    {calls}
     <EvidenceSection view={view} />
     <DecisionsSection view={view} />
     <ActivitySection view={view} />
